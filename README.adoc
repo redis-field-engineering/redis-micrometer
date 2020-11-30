@@ -17,6 +17,6 @@ ifdef::badges[]
 image:https://img.shields.io/badge/Forum-RedisTimeSeries-blue[link=https://forum.redislabs.com/c/modules/redistimeseries/]
 endif::[]
 
-Micrometer registry for RedisTimeSeries[https://redistimeseries.io]
+https://micrometer.io[Micrometer] registry for https://redistimeseries.io[RedisTimeSeries]
 
 Latest release: https://github.com/redis-developer/micrometer-registry-redistimeseries/releases/latest
