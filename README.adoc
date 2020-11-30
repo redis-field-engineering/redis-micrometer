@@ -1,0 +1,22 @@
+= Micrometer RedisTimeSeries
+:project-repo: redis-developer/micrometer-registry-redistimeseries
+:uri-repo: https://github.com/{project-repo}
+ifdef::env-github[]
+:badges:
+:tag: master
+:!toc-title:
+:tip-caption: :bulb:
+:note-caption: :paperclip:
+:important-caption: :heavy_exclamation_mark:
+:caution-caption: :fire:
+:warning-caption: :warning:
+endif::[]
+
+// Badges
+ifdef::badges[]
+image:https://img.shields.io/badge/Forum-RedisTimeSeries-blue[link=https://forum.redislabs.com/c/modules/redistimeseries/]
+endif::[]
+
+Micrometer registry for RedisTimeSeries[https://redistimeseries.io]
+
+Latest release: https://github.com/redis-developer/micrometer-registry-redistimeseries/releases/latest
