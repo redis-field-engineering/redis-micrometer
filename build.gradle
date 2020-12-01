@@ -124,7 +124,7 @@ bintray {
                 sign = true
             }
             mavenCentralSync {
-                sync = false
+                sync = true
                 user = project.hasProperty('ossrhUsername') ? project.property('ossrhUsername') : ''
                 password = project.hasProperty('ossrhPassword') ? project.property('ossrhPassword') : ''
             }
