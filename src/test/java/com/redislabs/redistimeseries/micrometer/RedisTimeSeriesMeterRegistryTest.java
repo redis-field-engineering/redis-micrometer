@@ -1,6 +1,5 @@
 package com.redislabs.redistimeseries.micrometer;
 
-import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -14,16 +13,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import com.redislabs.mesclun.RedisTimeSeriesClient;
-import com.redislabs.mesclun.api.StatefulRedisTimeSeriesConnection;
-import com.redislabs.mesclun.api.async.RedisTimeSeriesAsyncCommands;
-import com.redislabs.mesclun.api.reactive.RedisTimeSeriesReactiveCommands;
-import com.redislabs.mesclun.api.sync.RedisTimeSeriesCommands;
 import com.redislabs.redistimeseries.Range;
 import com.redislabs.redistimeseries.RedisTimeSeries;
 import com.redislabs.redistimeseries.Value;
 
-import io.lettuce.core.LettuceFutures;
-import io.lettuce.core.RedisFuture;
 import io.lettuce.core.RedisURI;
 import io.micrometer.core.instrument.Clock;
 import io.micrometer.core.instrument.Gauge;
@@ -36,18 +29,6 @@ import redis.clients.jedis.exceptions.JedisDataException;
 @Testcontainers
 public class RedisTimeSeriesMeterRegistryTest {
 
-	private final RedisTimeSeriesConfig config = RedisTimeSeriesConfig.DEFAULT;
-	private final RedisTimeSeriesMeterRegistry meterRegistry = new RedisTimeSeriesMeterRegistry(config, Clock.SYSTEM);
-
-	private RedisTimeSeriesClient client;
-	protected StatefulRedisTimeSeriesConnection<String, String> connection;
-	protected RedisTimeSeriesCommands<String, String> sync;
-	protected RedisTimeSeriesAsyncCommands<String, String> async;
-	protected RedisTimeSeriesReactiveCommands<String, String> reactive;
-
-	protected String host;
-	protected int port;
-	protected RedisURI redisURI;
 	private RedisTimeSeriesMeterRegistry registry;
 	private RedisTimeSeries rts;
 
@@ -58,17 +39,13 @@ public class RedisTimeSeriesMeterRegistryTest {
 
 	@BeforeEach
 	public void setup() {
-		host = REDISTIMESERIES.getHost();
-		port = REDISTIMESERIES.getFirstMappedPort();
-		redisURI = RedisURI.create(host, port);
-		client = RedisTimeSeriesClient.create(redisURI);
+		String host = REDISTIMESERIES.getHost();
+		int port = REDISTIMESERIES.getFirstMappedPort();
+		RedisURI redisURI = RedisURI.create(host, port);
 		rts = new RedisTimeSeries(host, port);
-
-		connection = client.connect();
-		sync = connection.sync();
-		async = connection.async();
-		reactive = connection.reactive();
-		sync.flushall();
+		RedisTimeSeriesClient client = RedisTimeSeriesClient.create(redisURI);
+		client.connect().sync().flushall();
+		client.shutdown();
 		registry = new RedisTimeSeriesMeterRegistry(new RedisTimeSeriesConfig() {
 
 			@Override
@@ -83,22 +60,11 @@ public class RedisTimeSeriesMeterRegistryTest {
 
 		}, Clock.SYSTEM);
 		Metrics.addRegistry(registry);
-		async.setAutoFlushCommands(false);
 	}
 
 	@AfterEach
 	public void teardown() {
-		if (connection != null) {
-			connection.close();
-		}
-		if (client != null) {
-			client.shutdown();
-		}
-	}
-
-	private void flushAndAwaitAll(List<RedisFuture<Long>> futures) {
-		async.flushCommands();
-		LettuceFutures.awaitAll(redisURI.getTimeout(), futures.toArray(new RedisFuture[0]));
+		registry.close();
 	}
 
 	private void assertKeyAbsent(String key) {
@@ -111,41 +77,41 @@ public class RedisTimeSeriesMeterRegistryTest {
 	}
 
 	@Test
-	void writeGauge() {
-		meterRegistry.gauge("my.gauge", 1d);
-		Gauge gauge = meterRegistry.get("my.gauge").gauge();
-		flushAndAwaitAll(meterRegistry.writeGauge(async, gauge));
+	void writeGauge() throws Exception {
+		registry.gauge("my.gauge", 1d);
+		Gauge gauge = registry.get("my.gauge").gauge();
+		registry.write(gauge);
 		Value[] range = rts.range("my:gauge", System.currentTimeMillis() - 1000, System.currentTimeMillis());
 		Assertions.assertTrue(range.length == 1);
 		Assertions.assertEquals(range[0].getValue(), 1d);
 	}
 
 	@Test
-	void writeGaugeShouldDropNanValue() {
-		meterRegistry.gauge("my.gauge", Double.NaN);
-		Gauge gauge = meterRegistry.get("my.gauge").gauge();
-		flushAndAwaitAll(meterRegistry.writeGauge(async, gauge));
+	void writeGaugeShouldDropNanValue() throws Exception {
+		registry.gauge("my.gauge", Double.NaN);
+		Gauge gauge = registry.get("my.gauge").gauge();
+		registry.write(gauge);
 		assertKeyAbsent("my:gauge");
 	}
 
 	@Test
-	void writeGaugeShouldDropInfiniteValues() {
-		meterRegistry.gauge("my.gauge", Double.POSITIVE_INFINITY);
-		Gauge gauge = meterRegistry.get("my.gauge").gauge();
-		flushAndAwaitAll(meterRegistry.writeGauge(async, gauge));
+	void writeGaugeShouldDropInfiniteValues() throws Exception {
+		registry.gauge("my.gauge", Double.POSITIVE_INFINITY);
+		Gauge gauge = registry.get("my.gauge").gauge();
+		registry.write(gauge);
 		assertKeyAbsent("my:gauge");
-		meterRegistry.gauge("my.gauge", Double.NEGATIVE_INFINITY);
-		gauge = meterRegistry.get("my.gauge").gauge();
-		flushAndAwaitAll(meterRegistry.writeGauge(async, gauge));
+		registry.gauge("my.gauge", Double.NEGATIVE_INFINITY);
+		gauge = registry.get("my.gauge").gauge();
+		registry.write(gauge);
 		assertKeyAbsent("my:gauge");
 	}
 
 	@Test
-	void writeTimeGauge() {
+	void writeTimeGauge() throws Exception {
 		AtomicReference<Double> obj = new AtomicReference<>(1d);
-		meterRegistry.more().timeGauge("my.time.gauge", Tags.empty(), obj, TimeUnit.SECONDS, AtomicReference::get);
-		TimeGauge timeGauge = meterRegistry.get("my.time.gauge").timeGauge();
-		flushAndAwaitAll(meterRegistry.writeTimeGauge(async, timeGauge));
+		registry.more().timeGauge("my.time.gauge", Tags.empty(), obj, TimeUnit.SECONDS, AtomicReference::get);
+		TimeGauge timeGauge = registry.get("my.time.gauge").timeGauge();
+		registry.write(timeGauge);
 		Value[] range = rts.range("my:time:gauge", System.currentTimeMillis() - 1000, System.currentTimeMillis());
 		Assertions.assertTrue(range.length == 1);
 		Assertions.assertEquals(1, range[0].getValue());
@@ -153,33 +119,32 @@ public class RedisTimeSeriesMeterRegistryTest {
 	}
 
 	@Test
-	void writeTimeGaugeShouldDropNanValue() {
+	void writeTimeGaugeShouldDropNanValue() throws Exception {
 		AtomicReference<Double> obj = new AtomicReference<>(Double.NaN);
-		meterRegistry.more().timeGauge("my.time.gauge", Tags.empty(), obj, TimeUnit.SECONDS, AtomicReference::get);
-		TimeGauge timeGauge = meterRegistry.get("my.time.gauge").timeGauge();
-		flushAndAwaitAll(meterRegistry.writeTimeGauge(async, timeGauge));
+		registry.more().timeGauge("my.time.gauge", Tags.empty(), obj, TimeUnit.SECONDS, AtomicReference::get);
+		TimeGauge timeGauge = registry.get("my.time.gauge").timeGauge();
+		registry.write(timeGauge);
 		assertKeyAbsent("my:time:gauge");
 	}
 
 	@Test
-	void writeTimeGaugeShouldDropInfiniteValues() {
+	void writeTimeGaugeShouldDropInfiniteValues() throws Exception {
 		AtomicReference<Double> obj = new AtomicReference<>(Double.POSITIVE_INFINITY);
-		meterRegistry.more().timeGauge("my.time.gauge", Tags.empty(), obj, TimeUnit.SECONDS, AtomicReference::get);
-		TimeGauge timeGauge = meterRegistry.get("my.time.gauge").timeGauge();
-		flushAndAwaitAll(meterRegistry.writeTimeGauge(async, timeGauge));
+		registry.more().timeGauge("my.time.gauge", Tags.empty(), obj, TimeUnit.SECONDS, AtomicReference::get);
+		TimeGauge timeGauge = registry.get("my.time.gauge").timeGauge();
+		registry.write(timeGauge);
 		assertKeyAbsent("my:time:gauge");
-
 		obj = new AtomicReference<>(Double.NEGATIVE_INFINITY);
-		meterRegistry.more().timeGauge("my.time.gauge", Tags.empty(), obj, TimeUnit.SECONDS, AtomicReference::get);
-		timeGauge = meterRegistry.get("my.time.gauge").timeGauge();
-		flushAndAwaitAll(meterRegistry.writeTimeGauge(async, timeGauge));
+		registry.more().timeGauge("my.time.gauge", Tags.empty(), obj, TimeUnit.SECONDS, AtomicReference::get);
+		timeGauge = registry.get("my.time.gauge").timeGauge();
+		registry.write(timeGauge);
 		assertKeyAbsent("my:time:gauge");
 	}
 
 	@Test
-	void longTaskTimer() {
-		LongTaskTimer timer = LongTaskTimer.builder("my.timer").tag("tag", "value").register(meterRegistry);
-		flushAndAwaitAll(meterRegistry.writeLongTaskTimer(async, timer));
+	void longTaskTimer() throws Exception {
+		LongTaskTimer timer = LongTaskTimer.builder("my.timer").tag("tag", "value").register(registry);
+		registry.write(timer);
 		Range[] ranges = rts.mget(true, "tag=value");
 		Assertions.assertEquals(3, ranges.length);
 		Assertions.assertEquals("my:timer:active:count", ranges[0].getKey());
