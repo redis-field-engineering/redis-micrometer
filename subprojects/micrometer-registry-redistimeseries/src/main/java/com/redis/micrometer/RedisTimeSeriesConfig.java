@@ -1,43 +1,41 @@
-package com.redislabs.redistimeseries.micrometer;
+package com.redis.micrometer;
 
 import static io.micrometer.core.instrument.config.MeterRegistryConfigValidator.checkAll;
 import static io.micrometer.core.instrument.config.MeterRegistryConfigValidator.checkRequired;
-import static io.micrometer.core.instrument.config.validate.PropertyValidator.getUrlString;
-import static io.micrometer.core.instrument.config.validate.PropertyValidator.getInteger;
 
-import io.lettuce.core.RedisURI;
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
+
+import io.micrometer.core.instrument.config.validate.PropertyValidator;
 import io.micrometer.core.instrument.config.validate.Validated;
 import io.micrometer.core.instrument.step.StepRegistryConfig;
 
 /**
- * Configuration for {@link RedisTimeSeriesMeterRegistry}.
+ * {@link StepRegistryConfig} for RedisTimeSeries.
  *
  * @author Julien Ruaux
  */
 public interface RedisTimeSeriesConfig extends StepRegistryConfig {
-	/**
-	 * Accept configuration defaults
-	 */
-	RedisTimeSeriesConfig DEFAULT = k -> null;
 
 	@Override
 	default String prefix() {
 		return "redistimeseries";
 	}
 
-	/**
-	 * @return RedisTimeSeries connection string.
-	 */
-	default RedisURI uri() {
-		return RedisURI.create(getUrlString(this, "uri").orElse("redis://localhost:6379"));
+	default String uri() {
+		return PropertyValidator.getString(this, "uri").required().get();
+	}
+
+	default boolean cluster() {
+		return PropertyValidator.getBoolean(this, "cluster").orElse(false);
 	}
 
 	default int poolMaxTotal() {
-		return getInteger(this, "poolMaxTotal").orElse(8);
+		return PropertyValidator.getInteger(this, "poolMaxTotal").orElse(GenericObjectPoolConfig.DEFAULT_MAX_TOTAL);
 	}
 
 	@Override
 	default Validated<?> validate() {
 		return checkAll(this, c -> StepRegistryConfig.validate(c), checkRequired("uri", RedisTimeSeriesConfig::uri));
 	}
+
 }

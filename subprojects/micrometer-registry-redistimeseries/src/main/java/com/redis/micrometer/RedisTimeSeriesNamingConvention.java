@@ -1,4 +1,4 @@
-package com.redislabs.redistimeseries.micrometer;
+package com.redis.micrometer;
 
 import java.util.Arrays;
 import java.util.Objects;
@@ -6,17 +6,19 @@ import java.util.stream.Collectors;
 
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.config.NamingConvention;
-import io.micrometer.core.lang.Nullable;
 
 /**
  * {@link NamingConvention} for RedisTimeSeries.
+ *
+ * Names are mapped to RedisTimeSeries keys and tag keys are mapped to its
+ * labels.
  *
  * @author Julien Ruaux
  */
 public class RedisTimeSeriesNamingConvention implements NamingConvention {
 
 	@Override
-	public String name(String name, Meter.Type type, @Nullable String baseUnit) {
+	public String name(String name, Meter.Type type, String baseUnit) {
 		return toColonDelimited(name);
 	}
 
@@ -28,4 +30,5 @@ public class RedisTimeSeriesNamingConvention implements NamingConvention {
 	private String toColonDelimited(String value) {
 		return Arrays.stream(value.split("\\.")).filter(Objects::nonNull).collect(Collectors.joining(":"));
 	}
+
 }

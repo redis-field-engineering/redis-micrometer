@@ -1,22 +1,16 @@
-= Micrometer RedisTimeSeries
-:project-repo: redis-developer/micrometer-registry-redistimeseries
-:uri-repo: https://github.com/{project-repo}
-ifdef::env-github[]
-:badges:
-:tag: master
-:!toc-title:
-:tip-caption: :bulb:
-:note-caption: :paperclip:
-:important-caption: :heavy_exclamation_mark:
-:caution-caption: :fire:
-:warning-caption: :warning:
-endif::[]
+= Micrometer-RedisTimeSeries
+:linkattrs:
+:project-owner:   redis-developer
+:project-name:    micrometer-redistimeseries
+:project-group:   com.redis
+:project-version: 0.0.1
+:artifact-id:     micrometer-registry-redistimeseries
+:codecov-token:   y0NMn7uIJ0
 
-// Badges
-ifdef::badges[]
-image:https://img.shields.io/badge/Forum-RedisTimeSeries-blue[link=https://forum.redislabs.com/c/modules/redistimeseries/]
-endif::[]
 
-https://micrometer.io[Micrometer] registry for https://redistimeseries.io[RedisTimeSeries]
+image:https://github.com/{project-owner}/{project-name}/actions/workflows/early-access.yml/badge.svg["Build Status", link="https://github.com/{project-owner}/{project-name}/actions/workflows/early-access.yml"]
+image:https://img.shields.io/maven-central/v/{project-group}/{artifact-id}[Download, link="https://search.maven.org/#search|ga|1|{artifact-id}"]
+image:https://img.shields.io/nexus/s/{project-group}/{artifact-id}?server=https%3A%2F%2Fs01.oss.sonatype.org[Snapshot,link="https://s01.oss.sonatype.org/#nexus-search;quick~{artifact-id}"]
+image:https://codecov.io/gh/{project-owner}/{project-name}/branch/master/graph/badge.svg?token={codecov-token}["Coverage", link="https://codecov.io/gh/{project-owner}/{project-name}"]
 
-Latest release: https://github.com/redis-developer/micrometer-registry-redistimeseries/releases/latest
+Micrometer-RedisTimeSeries is a Micrometer registry for RedisTimeSeries.
