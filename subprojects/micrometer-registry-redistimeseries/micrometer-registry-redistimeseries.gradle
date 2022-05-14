@@ -3,6 +3,7 @@ dependencies {
     implementation group: 'com.redis', name: 'lettucemod', version: lettucemodVersion
     implementation 'org.apache.commons:commons-pool2'
     implementation 'org.slf4j:slf4j-api'
+    testImplementation 'org.slf4j:slf4j-simple'
     testImplementation 'io.micrometer:micrometer-test'
     testImplementation 'io.projectreactor.netty:reactor-netty-core'
     testImplementation group: 'com.redis.testcontainers', name: 'testcontainers-redis-junit', version: testcontainersRedisVersion

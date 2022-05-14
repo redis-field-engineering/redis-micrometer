@@ -69,53 +69,67 @@ class RedisTimeSeriesMeterRegistryTests extends AbstractTestcontainersRedisTestB
 	@RedisTestContextsSource
 	void testGauge(RedisTestContext context) throws Exception {
 		RedisTimeSeriesMeterRegistry registry = registry(context);
-		registry.gauge("my.gauge", 1d);
-		Gauge gauge = registry.get("my.gauge").gauge();
-		registry.write(gauge);
-		List<Sample> samples = context.sync().range("my:gauge",
-				RangeOptions.range(System.currentTimeMillis() - 1000, System.currentTimeMillis()).build());
-		Assertions.assertTrue(samples.size() == 1);
-		Assertions.assertEquals(samples.get(0).getValue(), 1d);
-		registry.close();
+		try {
+			registry.gauge("my.gauge", 1d);
+			Gauge gauge = registry.get("my.gauge").gauge();
+			registry.write(gauge);
+			List<Sample> samples = context.sync().range("my:gauge",
+					RangeOptions.range(System.currentTimeMillis() - 1000, System.currentTimeMillis()).build());
+			Assertions.assertTrue(samples.size() == 1);
+			Assertions.assertEquals(samples.get(0).getValue(), 1d);
+		} finally {
+			registry.close();
+		}
 	}
 
 	@ParameterizedTest
 	@RedisTestContextsSource
 	void testGaugeShouldDropNanValue(RedisTestContext context) throws Exception {
 		RedisTimeSeriesMeterRegistry registry = registry(context);
-		registry.gauge("my.gauge", Double.NaN);
-		Gauge gauge = registry.get("my.gauge").gauge();
-		registry.write(gauge);
-		assertKeyAbsent(context, "my:gauge");
-		registry.close();
+		try {
+			registry.gauge("my.gauge", Double.NaN);
+			Gauge gauge = registry.get("my.gauge").gauge();
+			registry.write(gauge);
+			assertKeyAbsent(context, "my:gauge");
+		} finally {
+			registry.close();
+		}
 	}
 
 	@ParameterizedTest
 	@RedisTestContextsSource
 	void testGaugeShouldDropInfiniteValues(RedisTestContext context) throws Exception {
 		RedisTimeSeriesMeterRegistry registry = registry(context);
-		registry.gauge("my.gauge", Double.POSITIVE_INFINITY);
-		Gauge gauge = registry.get("my.gauge").gauge();
-		registry.write(gauge);
-		assertKeyAbsent(context, "my:gauge");
-		registry.gauge("my.gauge", Double.NEGATIVE_INFINITY);
-		gauge = registry.get("my.gauge").gauge();
-		registry.write(gauge);
-		assertKeyAbsent(context, "my:gauge");
-		registry.close();
+		try {
+			registry.gauge("my.gauge", Double.POSITIVE_INFINITY);
+			Gauge gauge = registry.get("my.gauge").gauge();
+			registry.write(gauge);
+			assertKeyAbsent(context, "my:gauge");
+			registry.gauge("my.gauge", Double.NEGATIVE_INFINITY);
+			gauge = registry.get("my.gauge").gauge();
+			registry.write(gauge);
+			assertKeyAbsent(context, "my:gauge");
+		} finally {
+			registry.close();
+		}
 	}
 
 	@ParameterizedTest
 	@RedisTestContextsSource
 	void testTimeGauge(RedisTestContext context) throws Exception {
 		RedisTimeSeriesMeterRegistry registry = registry(context);
-		AtomicReference<Double> obj = new AtomicReference<>(1d);
-		registry.more().timeGauge("my.time.gauge", Tags.empty(), obj, TimeUnit.SECONDS, AtomicReference::get);
-		TimeGauge timeGauge = registry.get("my.time.gauge").timeGauge();
-		registry.write(timeGauge);
-		List<Sample> samples = context.sync().range("my:time:gauge", RangeOptions.range(System.currentTimeMillis() - 1000, System.currentTimeMillis()).build());
-		Assertions.assertTrue(samples.size() == 1);
-		Assertions.assertEquals(1, samples.get(0).getValue());
+		try {
+			AtomicReference<Double> obj = new AtomicReference<>(1d);
+			registry.more().timeGauge("my.time.gauge", Tags.empty(), obj, TimeUnit.SECONDS, AtomicReference::get);
+			TimeGauge timeGauge = registry.get("my.time.gauge").timeGauge();
+			registry.write(timeGauge);
+			List<Sample> samples = context.sync().range("my:time:gauge",
+					RangeOptions.range(System.currentTimeMillis() - 1000, System.currentTimeMillis()).build());
+			Assertions.assertTrue(samples.size() == 1);
+			Assertions.assertEquals(1, samples.get(0).getValue());
+		} finally {
+			registry.close();
+		}
 
 	}
 
@@ -123,42 +137,51 @@ class RedisTimeSeriesMeterRegistryTests extends AbstractTestcontainersRedisTestB
 	@RedisTestContextsSource
 	void testTimeGaugeShouldDropNanValue(RedisTestContext context) throws Exception {
 		RedisTimeSeriesMeterRegistry registry = registry(context);
-		AtomicReference<Double> obj = new AtomicReference<>(Double.NaN);
-		registry.more().timeGauge("my.time.gauge", Tags.empty(), obj, TimeUnit.SECONDS, AtomicReference::get);
-		TimeGauge timeGauge = registry.get("my.time.gauge").timeGauge();
-		registry.write(timeGauge);
-		assertKeyAbsent(context, "my:time:gauge");
-		registry.close();
+		try {
+			AtomicReference<Double> obj = new AtomicReference<>(Double.NaN);
+			registry.more().timeGauge("my.time.gauge", Tags.empty(), obj, TimeUnit.SECONDS, AtomicReference::get);
+			TimeGauge timeGauge = registry.get("my.time.gauge").timeGauge();
+			registry.write(timeGauge);
+			assertKeyAbsent(context, "my:time:gauge");
+		} finally {
+			registry.close();
+		}
 	}
 
 	@ParameterizedTest
 	@RedisTestContextsSource
 	void testTimeGaugeShouldDropInfiniteValues(RedisTestContext context) throws Exception {
 		RedisTimeSeriesMeterRegistry registry = registry(context);
-		AtomicReference<Double> obj = new AtomicReference<>(Double.POSITIVE_INFINITY);
-		registry.more().timeGauge("my.time.gauge", Tags.empty(), obj, TimeUnit.SECONDS, AtomicReference::get);
-		TimeGauge timeGauge = registry.get("my.time.gauge").timeGauge();
-		registry.write(timeGauge);
-		assertKeyAbsent(context, "my:time:gauge");
-		obj = new AtomicReference<>(Double.NEGATIVE_INFINITY);
-		registry.more().timeGauge("my.time.gauge", Tags.empty(), obj, TimeUnit.SECONDS, AtomicReference::get);
-		timeGauge = registry.get("my.time.gauge").timeGauge();
-		registry.write(timeGauge);
-		assertKeyAbsent(context, "my:time:gauge");
-		registry.close();
+		try {
+			AtomicReference<Double> obj = new AtomicReference<>(Double.POSITIVE_INFINITY);
+			registry.more().timeGauge("my.time.gauge", Tags.empty(), obj, TimeUnit.SECONDS, AtomicReference::get);
+			TimeGauge timeGauge = registry.get("my.time.gauge").timeGauge();
+			registry.write(timeGauge);
+			assertKeyAbsent(context, "my:time:gauge");
+			obj = new AtomicReference<>(Double.NEGATIVE_INFINITY);
+			registry.more().timeGauge("my.time.gauge", Tags.empty(), obj, TimeUnit.SECONDS, AtomicReference::get);
+			timeGauge = registry.get("my.time.gauge").timeGauge();
+			registry.write(timeGauge);
+			assertKeyAbsent(context, "my:time:gauge");
+		} finally {
+			registry.close();
+		}
 	}
 
 	@ParameterizedTest
 	@RedisTestContextsSource
 	void longTaskTimer(RedisTestContext context) throws Exception {
 		RedisTimeSeriesMeterRegistry registry = registry(context);
-		LongTaskTimer timer = LongTaskTimer.builder("my.timer").tag("tag", "value").register(registry);
-		registry.write(timer);
-		List<GetResult<String, String>> results = context.sync().tsMget("tag=value");
-		Assertions.assertEquals(3, results.size());
-		Assertions.assertEquals("my:timer:active:count", results.get(0).getKey());
-		Assertions.assertEquals("my:timer:duration:sum", results.get(1).getKey());
-		Assertions.assertEquals("my:timer:max", results.get(2).getKey());
-		registry.close();
+		try {
+			LongTaskTimer timer = LongTaskTimer.builder("my.timer").tag("tag", "value").register(registry);
+			registry.write(timer);
+			List<GetResult<String, String>> results = context.sync().tsMget("tag=value");
+			Assertions.assertEquals(3, results.size());
+			Assertions.assertEquals("my:timer:active:count", results.get(0).getKey());
+			Assertions.assertEquals("my:timer:duration:sum", results.get(1).getKey());
+			Assertions.assertEquals("my:timer:max", results.get(2).getKey());
+		} finally {
+			registry.close();
+		}
 	}
 }

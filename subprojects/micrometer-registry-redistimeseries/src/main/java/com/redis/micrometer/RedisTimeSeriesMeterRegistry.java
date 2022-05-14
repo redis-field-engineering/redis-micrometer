@@ -111,8 +111,10 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 
 	@Override
 	public void stop() {
-		if (client != null) {
+		if (pool != null) {
 			pool.close();
+		}
+		if (client != null) {
 			client.shutdown();
 			client.getResources().shutdown();
 		}
