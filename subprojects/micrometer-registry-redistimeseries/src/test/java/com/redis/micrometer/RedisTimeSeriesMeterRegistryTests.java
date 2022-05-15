@@ -55,6 +55,11 @@ class RedisTimeSeriesMeterRegistryTests extends AbstractTestcontainersRedisTestB
 			public String uri() {
 				return context.getRedisURI();
 			}
+			
+			@Override
+			public boolean cluster() {
+				return context.isCluster();
+			}
 
 		}, Clock.SYSTEM);
 		Metrics.addRegistry(registry);
