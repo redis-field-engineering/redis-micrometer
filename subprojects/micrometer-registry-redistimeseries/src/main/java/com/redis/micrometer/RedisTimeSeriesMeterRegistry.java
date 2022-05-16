@@ -9,6 +9,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
@@ -20,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import com.redis.lettucemod.RedisModulesClient;
 import com.redis.lettucemod.api.StatefulRedisModulesConnection;
 import com.redis.lettucemod.api.async.RedisModulesAsyncCommands;
+import com.redis.lettucemod.api.async.RedisTimeSeriesAsyncCommands;
 import com.redis.lettucemod.cluster.RedisModulesClusterClient;
 import com.redis.lettucemod.timeseries.CreateOptions;
 import com.redis.lettucemod.timeseries.Label;
@@ -124,10 +126,10 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 	@Override
 	protected void publish() {
 		if (client == null) {
+			log.info("Client is null, skipping publish");
 			return;
 		}
-		List<List<Meter>> partitions = MeterPartition.partition(this, config.batchSize());
-		for (List<Meter> batch : partitions) {
+		for (List<Meter> batch : MeterPartition.partition(this, config.batchSize())) {
 			try {
 				write(batch);
 			} catch (Exception e) {
@@ -140,13 +142,25 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		write(Arrays.asList(meters));
 	}
 
-	private void write(List<Meter> batch) throws Exception {
-		try (MeterWriter writer = new MeterWriter(pool.borrowObject())) {
-			for (Meter meter : batch) {
-				meter.match(writer::writeGauge, writer::writeCounter, writer::writeTimer, writer::writeSummary,
-						writer::writeLongTaskTimer, writer::writeTimeGauge, writer::writeFunctionCounter,
-						writer::writeFunctionTimer, writer::writeCustomMetric);
-			}
+	public void write(List<Meter> batch) throws Exception {
+		if (batch.isEmpty()) {
+			return;
+		}
+		try (StatefulRedisModulesConnection<String, String> connection = pool.borrowObject()) {
+			RedisModulesAsyncCommands<String, String> commands = connection.async();
+			log.info("Disabling command auto-flush");
+			commands.setAutoFlushCommands(false);
+			List<RedisFuture<Long>> futures = batch.stream()
+					.flatMap(meter -> meter.match(m -> writeGauge(commands, m), m -> writeCounter(commands, m),
+							m -> writeTimer(commands, m), m -> writeSummary(commands, m),
+							m -> writeLongTaskTimer(commands, m), m -> writeTimeGauge(commands, m),
+							m -> writeFunctionCounter(commands, m), m -> writeFunctionTimer(commands, m),
+							m -> writeCustomMetric(commands, m)))
+					.collect(Collectors.toList());
+			commands.flushCommands();
+			LettuceFutures.awaitAll(connection.getTimeout().toMillis(), TimeUnit.MILLISECONDS,
+					futures.toArray(new Future[0]));
+			commands.setAutoFlushCommands(true);
 		}
 	}
 
@@ -169,229 +183,213 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		return TimeUnit.MILLISECONDS;
 	}
 
-	private class MeterWriter implements AutoCloseable {
+	Stream<RedisFuture<Long>> writeSummary(RedisTimeSeriesAsyncCommands<String, String> commands,
+			DistributionSummary summary) {
+		long wallTime = config().clock().wallTime();
 
-		private final StatefulRedisModulesConnection<String, String> connection;
-		private final RedisModulesAsyncCommands<String, String> commands;
-		private final List<RedisFuture<Long>> futures;
+		final ValueAtPercentile[] percentileValues = summary.takeSnapshot().percentileValues();
+		double count = summary.count();
 
-		public MeterWriter(StatefulRedisModulesConnection<String, String> connection) {
-			this.connection = connection;
-			this.commands = connection.async();
-			this.commands.setAutoFlushCommands(false);
-			this.futures = new ArrayList<>();
+		List<RedisFuture<Long>> metrics = new ArrayList<>();
+
+		metrics.add(writeMetricWithSuffix(commands, summary.getId(), "count", wallTime, count));
+		metrics.add(writeMetricWithSuffix(commands, summary.getId(), "sum", wallTime, summary.totalAmount()));
+		metrics.add(writeMetricWithSuffix(commands, summary.getId(), "max", wallTime, summary.max()));
+		metrics.add(writeMetricWithSuffix(commands, summary.getId(), "mean", wallTime, summary.mean()));
+
+		if (percentileValues.length > 0) {
+			metrics.addAll(writePercentiles(commands, summary, wallTime, percentileValues));
 		}
 
-		@Override
-		public void close() throws Exception {
-			commands.flushCommands();
-			LettuceFutures.awaitAll(connection.getTimeout().toMillis(), TimeUnit.MILLISECONDS,
-					futures.toArray(new Future[0]));
-			commands.setAutoFlushCommands(true);
-			connection.close();
+		return metrics.stream();
+	}
+
+	Stream<RedisFuture<Long>> writeFunctionTimer(RedisTimeSeriesAsyncCommands<String, String> commands,
+			FunctionTimer timer) {
+		long wallTime = config().clock().wallTime();
+
+		return Stream.of(writeMetricWithSuffix(commands, timer.getId(), "count", wallTime, timer.count()),
+				// not applicable
+				// writeMetricWithSuffix(timer.getId(), "avg", wallTime,
+				// timer.mean(getBaseTimeUnit())),
+				writeMetricWithSuffix(commands, timer.getId(), "sum", wallTime, timer.totalTime(getBaseTimeUnit())));
+	}
+
+	Stream<RedisFuture<Long>> writeTimer(RedisTimeSeriesAsyncCommands<String, String> commands, Timer timer) {
+		long wallTime = config().clock().wallTime();
+
+		HistogramSnapshot histogramSnapshot = timer.takeSnapshot();
+		final ValueAtPercentile[] percentileValues = histogramSnapshot.percentileValues();
+		final CountAtBucket[] histogramCounts = histogramSnapshot.histogramCounts();
+		double count = timer.count();
+
+		List<RedisFuture<Long>> metrics = new ArrayList<>();
+
+		metrics.add(writeMetricWithSuffix(commands, timer.getId(), "count", wallTime, count));
+		metrics.add(
+				writeMetricWithSuffix(commands, timer.getId(), "sum", wallTime, timer.totalTime(getBaseTimeUnit())));
+		metrics.add(writeMetricWithSuffix(commands, timer.getId(), "max", wallTime, timer.max(getBaseTimeUnit())));
+
+		if (percentileValues.length > 0) {
+			metrics.addAll(writePercentiles(commands, timer, wallTime, percentileValues));
 		}
 
-		Stream<RedisFuture<Long>> writeSummary(DistributionSummary summary) {
-			long wallTime = config().clock().wallTime();
+		if (histogramCounts.length > 0) {
+			metrics.addAll(writeHistogram(commands, wallTime, timer, histogramCounts, count, getBaseTimeUnit()));
+		}
 
-			final ValueAtPercentile[] percentileValues = summary.takeSnapshot().percentileValues();
-			double count = summary.count();
+		return metrics.stream();
+	}
 
-			List<RedisFuture<Long>> metrics = new ArrayList<>();
+	private List<RedisFuture<Long>> writePercentiles(RedisTimeSeriesAsyncCommands<String, String> commands, Meter meter,
+			long wallTime, ValueAtPercentile[] percentileValues) {
+		List<RedisFuture<Long>> metrics = new ArrayList<>(percentileValues.length);
 
-			metrics.add(writeMetricWithSuffix(summary.getId(), "count", wallTime, count));
-			metrics.add(writeMetricWithSuffix(summary.getId(), "sum", wallTime, summary.totalAmount()));
-			metrics.add(writeMetricWithSuffix(summary.getId(), "max", wallTime, summary.max()));
-			metrics.add(writeMetricWithSuffix(summary.getId(), "mean", wallTime, summary.mean()));
+		boolean forTimer = meter instanceof Timer;
+		// satisfies https://prometheus.io/docs/concepts/metric_types/#summary
+		for (ValueAtPercentile v : percentileValues) {
+			metrics.add(writeMetric(commands,
+					meter.getId().withTag(new ImmutableTag("quantile", String.valueOf(v.percentile()))), wallTime,
+					(forTimer ? v.value(getBaseTimeUnit()) : v.value())));
+		}
 
-			if (percentileValues.length > 0) {
-				metrics.addAll(writePercentiles(summary, wallTime, percentileValues));
+		return metrics;
+	}
+
+	private List<RedisFuture<Long>> writeHistogram(RedisTimeSeriesAsyncCommands<String, String> commands, long wallTime,
+			Meter meter, CountAtBucket[] histogramCounts, double count, TimeUnit timeUnit) {
+		List<RedisFuture<Long>> metrics = new ArrayList<>(histogramCounts.length);
+
+		for (CountAtBucket c : histogramCounts) {
+			metrics.add(writeMetricWithSuffix(commands,
+					meter.getId().withTag(
+							Tag.of("vmrange", getRangeTagValue(timeUnit == null ? c.bucket() : c.bucket(timeUnit)))),
+					"bucket", wallTime, c.count()));
+		}
+
+		return metrics;
+	}
+
+	// VisibleForTesting
+	Stream<RedisFuture<Long>> writeFunctionCounter(RedisTimeSeriesAsyncCommands<String, String> commands,
+			FunctionCounter counter) {
+		double count = counter.count();
+		if (Double.isFinite(count)) {
+			return Stream.of(writeMetric(commands, counter.getId(), config().clock().wallTime(), count));
+		}
+		return Stream.empty();
+	}
+
+	Stream<RedisFuture<Long>> writeCounter(RedisTimeSeriesAsyncCommands<String, String> commands, Counter counter) {
+		return Stream.of(writeMetric(commands, counter.getId(), config().clock().wallTime(), counter.count()));
+	}
+
+	// VisibleForTesting
+	Stream<RedisFuture<Long>> writeGauge(RedisTimeSeriesAsyncCommands<String, String> commands, Gauge gauge) {
+		double value = gauge.value();
+		if (Double.isFinite(value)) {
+			return Stream.of(writeMetric(commands, gauge.getId(), config().clock().wallTime(), value));
+		}
+		return Stream.empty();
+	}
+
+	// VisibleForTesting
+	Stream<RedisFuture<Long>> writeTimeGauge(RedisTimeSeriesAsyncCommands<String, String> commands,
+			TimeGauge timeGauge) {
+		double value = timeGauge.value(getBaseTimeUnit());
+		if (Double.isFinite(value)) {
+			return Stream.of(writeMetric(commands, timeGauge.getId(), config().clock().wallTime(), value));
+		}
+		return Stream.empty();
+	}
+
+	Stream<RedisFuture<Long>> writeLongTaskTimer(RedisTimeSeriesAsyncCommands<String, String> commands,
+			LongTaskTimer timer) {
+		long wallTime = config().clock().wallTime();
+
+		HistogramSnapshot histogramSnapshot = timer.takeSnapshot();
+		final ValueAtPercentile[] percentileValues = histogramSnapshot.percentileValues();
+		final CountAtBucket[] histogramCounts = histogramSnapshot.histogramCounts();
+		double count = timer.activeTasks();
+
+		List<RedisFuture<Long>> metrics = new ArrayList<>();
+
+		metrics.add(writeMetricWithSuffix(commands, timer.getId(), "active.count", wallTime, count));
+		metrics.add(writeMetricWithSuffix(commands, timer.getId(), "duration.sum", wallTime,
+				timer.duration(getBaseTimeUnit())));
+		metrics.add(writeMetricWithSuffix(commands, timer.getId(), "max", wallTime, timer.max(getBaseTimeUnit())));
+
+		if (percentileValues.length > 0) {
+			metrics.addAll(writePercentiles(commands, timer, wallTime, percentileValues));
+		}
+
+		if (histogramCounts.length > 0) {
+			metrics.addAll(writeHistogram(commands, wallTime, timer, histogramCounts, count, getBaseTimeUnit()));
+		}
+
+		return metrics.stream();
+	}
+
+	@SuppressWarnings("incomplete-switch")
+	Stream<RedisFuture<Long>> writeCustomMetric(RedisTimeSeriesAsyncCommands<String, String> commands, Meter meter) {
+		long wallTime = config().clock().wallTime();
+
+		List<Tag> tags = getConventionTags(meter.getId());
+
+		return StreamSupport.stream(meter.measure().spliterator(), false).map(ms -> {
+			Tags localTags = Tags.concat(tags, "statistics", ms.getStatistic().toString());
+			String name = getConventionName(meter.getId());
+
+			switch (ms.getStatistic()) {
+			case TOTAL:
+			case TOTAL_TIME:
+				name += ".sum";
+				break;
+			case MAX:
+				name += ".max";
+				break;
+			case ACTIVE_TASKS:
+				name += ".active.count";
+				break;
+			case DURATION:
+				name += ".duration.sum";
+				break;
 			}
 
-			return metrics.stream();
+			return commands.add(name, wallTime, ms.getValue(), createOptions(labels(localTags)));
+		});
+	}
+
+	RedisFuture<Long> writeMetricWithSuffix(RedisTimeSeriesAsyncCommands<String, String> commands, Meter.Id id,
+			String suffix, long wallTime, double value) {
+		// usually tagKeys and metricNames naming rules are the same
+		// but we can't call getConventionName again after adding suffix
+		return commands.add(
+				suffix.isEmpty() ? getConventionName(id)
+						: config().namingConvention().tagKey(getConventionName(id) + "." + suffix),
+				wallTime, value, createOptions(labels(id)));
+	}
+
+	private CreateOptions<String, String> createOptions(Label<String, String>[] labels) {
+		return CreateOptions.<String, String>builder().labels(labels).build();
+	}
+
+	RedisFuture<Long> writeMetric(RedisTimeSeriesAsyncCommands<String, String> commands, Meter.Id id, long wallTime,
+			double value) {
+		return writeMetricWithSuffix(commands, id, "", wallTime, value);
+	}
+
+	private Label<String, String>[] labels(Meter.Id id) {
+		return labels(getConventionTags(id));
+	}
+
+	@SuppressWarnings("unchecked")
+	private Label<String, String>[] labels(Iterable<Tag> tags) {
+		List<Label<String, String>> labels = new ArrayList<>();
+		for (Tag tag : tags) {
+			labels.add(Label.of(tag.getKey(), tag.getValue()));
 		}
-
-		Stream<RedisFuture<Long>> writeFunctionTimer(FunctionTimer timer) {
-			long wallTime = config().clock().wallTime();
-
-			return Stream.of(writeMetricWithSuffix(timer.getId(), "count", wallTime, timer.count()),
-					// not applicable
-					// writeMetricWithSuffix(timer.getId(), "avg", wallTime,
-					// timer.mean(getBaseTimeUnit())),
-					writeMetricWithSuffix(timer.getId(), "sum", wallTime, timer.totalTime(getBaseTimeUnit())));
-		}
-
-		Stream<RedisFuture<Long>> writeTimer(Timer timer) {
-			long wallTime = config().clock().wallTime();
-
-			HistogramSnapshot histogramSnapshot = timer.takeSnapshot();
-			final ValueAtPercentile[] percentileValues = histogramSnapshot.percentileValues();
-			final CountAtBucket[] histogramCounts = histogramSnapshot.histogramCounts();
-			double count = timer.count();
-
-			List<RedisFuture<Long>> metrics = new ArrayList<>();
-
-			metrics.add(writeMetricWithSuffix(timer.getId(), "count", wallTime, count));
-			metrics.add(writeMetricWithSuffix(timer.getId(), "sum", wallTime, timer.totalTime(getBaseTimeUnit())));
-			metrics.add(writeMetricWithSuffix(timer.getId(), "max", wallTime, timer.max(getBaseTimeUnit())));
-
-			if (percentileValues.length > 0) {
-				metrics.addAll(writePercentiles(timer, wallTime, percentileValues));
-			}
-
-			if (histogramCounts.length > 0) {
-				metrics.addAll(writeHistogram(wallTime, timer, histogramCounts, count, getBaseTimeUnit()));
-			}
-
-			return metrics.stream();
-		}
-
-		private List<RedisFuture<Long>> writePercentiles(Meter meter, long wallTime,
-				ValueAtPercentile[] percentileValues) {
-			List<RedisFuture<Long>> metrics = new ArrayList<>(percentileValues.length);
-
-			boolean forTimer = meter instanceof Timer;
-			// satisfies https://prometheus.io/docs/concepts/metric_types/#summary
-			for (ValueAtPercentile v : percentileValues) {
-				metrics.add(
-						writeMetric(meter.getId().withTag(new ImmutableTag("quantile", String.valueOf(v.percentile()))),
-								wallTime, (forTimer ? v.value(getBaseTimeUnit()) : v.value())));
-			}
-
-			return metrics;
-		}
-
-		private List<RedisFuture<Long>> writeHistogram(long wallTime, Meter meter, CountAtBucket[] histogramCounts,
-				double count, TimeUnit timeUnit) {
-			List<RedisFuture<Long>> metrics = new ArrayList<>(histogramCounts.length);
-
-			for (CountAtBucket c : histogramCounts) {
-				metrics.add(writeMetricWithSuffix(
-						meter.getId()
-								.withTag(Tag.of("vmrange",
-										getRangeTagValue(timeUnit == null ? c.bucket() : c.bucket(timeUnit)))),
-						"bucket", wallTime, c.count()));
-			}
-
-			return metrics;
-		}
-
-		// VisibleForTesting
-		Stream<RedisFuture<Long>> writeFunctionCounter(FunctionCounter counter) {
-			double count = counter.count();
-			if (Double.isFinite(count)) {
-				return Stream.of(writeMetric(counter.getId(), config().clock().wallTime(), count));
-			}
-			return Stream.empty();
-		}
-
-		Stream<RedisFuture<Long>> writeCounter(Counter counter) {
-			return Stream.of(writeMetric(counter.getId(), config().clock().wallTime(), counter.count()));
-		}
-
-		// VisibleForTesting
-		Stream<RedisFuture<Long>> writeGauge(Gauge gauge) {
-			double value = gauge.value();
-			if (Double.isFinite(value)) {
-				return Stream.of(writeMetric(gauge.getId(), config().clock().wallTime(), value));
-			}
-			return Stream.empty();
-		}
-
-		// VisibleForTesting
-		Stream<RedisFuture<Long>> writeTimeGauge(TimeGauge timeGauge) {
-			double value = timeGauge.value(getBaseTimeUnit());
-			if (Double.isFinite(value)) {
-				return Stream.of(writeMetric(timeGauge.getId(), config().clock().wallTime(), value));
-			}
-			return Stream.empty();
-		}
-
-		Stream<RedisFuture<Long>> writeLongTaskTimer(LongTaskTimer timer) {
-			long wallTime = config().clock().wallTime();
-
-			HistogramSnapshot histogramSnapshot = timer.takeSnapshot();
-			final ValueAtPercentile[] percentileValues = histogramSnapshot.percentileValues();
-			final CountAtBucket[] histogramCounts = histogramSnapshot.histogramCounts();
-			double count = timer.activeTasks();
-
-			List<RedisFuture<Long>> metrics = new ArrayList<>();
-
-			metrics.add(writeMetricWithSuffix(timer.getId(), "active.count", wallTime, count));
-			metrics.add(
-					writeMetricWithSuffix(timer.getId(), "duration.sum", wallTime, timer.duration(getBaseTimeUnit())));
-			metrics.add(writeMetricWithSuffix(timer.getId(), "max", wallTime, timer.max(getBaseTimeUnit())));
-
-			if (percentileValues.length > 0) {
-				metrics.addAll(writePercentiles(timer, wallTime, percentileValues));
-			}
-
-			if (histogramCounts.length > 0) {
-				metrics.addAll(writeHistogram(wallTime, timer, histogramCounts, count, getBaseTimeUnit()));
-			}
-
-			return metrics.stream();
-		}
-
-		@SuppressWarnings("incomplete-switch")
-		private Stream<RedisFuture<Long>> writeCustomMetric(Meter meter) {
-			long wallTime = config().clock().wallTime();
-
-			List<Tag> tags = getConventionTags(meter.getId());
-
-			return StreamSupport.stream(meter.measure().spliterator(), false).map(ms -> {
-				Tags localTags = Tags.concat(tags, "statistics", ms.getStatistic().toString());
-				String name = getConventionName(meter.getId());
-
-				switch (ms.getStatistic()) {
-				case TOTAL:
-				case TOTAL_TIME:
-					name += ".sum";
-					break;
-				case MAX:
-					name += ".max";
-					break;
-				case ACTIVE_TASKS:
-					name += ".active.count";
-					break;
-				case DURATION:
-					name += ".duration.sum";
-					break;
-				}
-
-				return commands.add(name, wallTime, ms.getValue(), createOptions(labels(localTags)));
-			});
-		}
-
-		RedisFuture<Long> writeMetricWithSuffix(Meter.Id id, String suffix, long wallTime, double value) {
-			// usually tagKeys and metricNames naming rules are the same
-			// but we can't call getConventionName again after adding suffix
-			return commands.add(
-					suffix.isEmpty() ? getConventionName(id)
-							: config().namingConvention().tagKey(getConventionName(id) + "." + suffix),
-					wallTime, value, createOptions(labels(id)));
-		}
-
-		private CreateOptions<String, String> createOptions(Label<String, String>[] labels) {
-			return CreateOptions.<String, String>builder().labels(labels).build();
-		}
-
-		RedisFuture<Long> writeMetric(Meter.Id id, long wallTime, double value) {
-			return writeMetricWithSuffix(id, "", wallTime, value);
-		}
-
-		private Label<String, String>[] labels(Meter.Id id) {
-			return labels(getConventionTags(id));
-		}
-
-		@SuppressWarnings("unchecked")
-		private Label<String, String>[] labels(Iterable<Tag> tags) {
-			List<Label<String, String>> labels = new ArrayList<>();
-			for (Tag tag : tags) {
-				labels.add(Label.of(tag.getKey(), tag.getValue()));
-			}
-			return labels.toArray(new Label[0]);
-		}
+		return labels.toArray(new Label[0]);
 	}
 
 }
