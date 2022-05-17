@@ -43,6 +43,7 @@ import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.TimeGauge;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.Meter.Id;
 import io.micrometer.core.instrument.distribution.CountAtBucket;
 import io.micrometer.core.instrument.distribution.DistributionStatisticConfig;
 import io.micrometer.core.instrument.distribution.HistogramSnapshot;
@@ -368,6 +369,20 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 				suffix.isEmpty() ? getConventionName(id)
 						: config().namingConvention().tagKey(getConventionName(id) + "." + suffix),
 				wallTime, value, createOptions(labels(id)));
+	}
+
+	@Override
+	protected String getConventionName(Id id) {
+		StringBuilder hierarchicalName = new StringBuilder();
+		hierarchicalName.append(super.getConventionName(id));
+		for (Tag tag : id.getTagsAsIterable()) {
+			hierarchicalName.append(RedisTimeSeriesNamingConvention.KEY_SEPARATOR)
+					.append(config().namingConvention().tagKey(tag.getKey()))
+					.append(RedisTimeSeriesNamingConvention.KEY_SEPARATOR)
+					.append(config().namingConvention().tagValue(tag.getValue()));
+		}
+		return hierarchicalName.toString();
+
 	}
 
 	private CreateOptions<String, String> createOptions(Label<String, String>[] labels) {
