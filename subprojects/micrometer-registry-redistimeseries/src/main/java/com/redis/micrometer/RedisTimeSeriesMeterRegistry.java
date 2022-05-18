@@ -150,7 +150,6 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		}
 		try (StatefulRedisModulesConnection<String, String> connection = pool.borrowObject()) {
 			RedisModulesAsyncCommands<String, String> commands = connection.async();
-			log.info("Disabling command auto-flush");
 			commands.setAutoFlushCommands(false);
 			List<RedisFuture<Long>> futures = batch.stream()
 					.flatMap(meter -> meter.match(m -> writeGauge(commands, m), m -> writeCounter(commands, m),
