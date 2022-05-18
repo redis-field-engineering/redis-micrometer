@@ -24,6 +24,7 @@ import com.redis.lettucemod.api.async.RedisModulesAsyncCommands;
 import com.redis.lettucemod.api.async.RedisTimeSeriesAsyncCommands;
 import com.redis.lettucemod.cluster.RedisModulesClusterClient;
 import com.redis.lettucemod.timeseries.CreateOptions;
+import com.redis.lettucemod.timeseries.CreateOptions.DuplicatePolicy;
 import com.redis.lettucemod.timeseries.Label;
 
 import io.lettuce.core.AbstractRedisClient;
@@ -39,11 +40,11 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.ImmutableTag;
 import io.micrometer.core.instrument.LongTaskTimer;
 import io.micrometer.core.instrument.Meter;
+import io.micrometer.core.instrument.Meter.Id;
 import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.TimeGauge;
 import io.micrometer.core.instrument.Timer;
-import io.micrometer.core.instrument.Meter.Id;
 import io.micrometer.core.instrument.distribution.CountAtBucket;
 import io.micrometer.core.instrument.distribution.DistributionStatisticConfig;
 import io.micrometer.core.instrument.distribution.HistogramSnapshot;
@@ -193,10 +194,13 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 
 		List<RedisFuture<Long>> metrics = new ArrayList<>();
 
-		metrics.add(writeMetricWithSuffix(commands, summary.getId(), "count", wallTime, count));
-		metrics.add(writeMetricWithSuffix(commands, summary.getId(), "sum", wallTime, summary.totalAmount()));
-		metrics.add(writeMetricWithSuffix(commands, summary.getId(), "max", wallTime, summary.max()));
-		metrics.add(writeMetricWithSuffix(commands, summary.getId(), "mean", wallTime, summary.mean()));
+		metrics.add(writeMetricWithSuffix(commands, summary.getId(), DuplicatePolicy.SUM, "count", wallTime, count));
+		metrics.add(writeMetricWithSuffix(commands, summary.getId(), DuplicatePolicy.SUM, "sum", wallTime,
+				summary.totalAmount()));
+		metrics.add(
+				writeMetricWithSuffix(commands, summary.getId(), DuplicatePolicy.MAX, "max", wallTime, summary.max()));
+		metrics.add(writeMetricWithSuffix(commands, summary.getId(), DuplicatePolicy.LAST, "mean", wallTime,
+				summary.mean()));
 
 		if (percentileValues.length > 0) {
 			metrics.addAll(writePercentiles(commands, summary, wallTime, percentileValues));
@@ -209,11 +213,13 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 			FunctionTimer timer) {
 		long wallTime = config().clock().wallTime();
 
-		return Stream.of(writeMetricWithSuffix(commands, timer.getId(), "count", wallTime, timer.count()),
+		return Stream.of(
+				writeMetricWithSuffix(commands, timer.getId(), DuplicatePolicy.SUM, "count", wallTime, timer.count()),
 				// not applicable
 				// writeMetricWithSuffix(timer.getId(), "avg", wallTime,
 				// timer.mean(getBaseTimeUnit())),
-				writeMetricWithSuffix(commands, timer.getId(), "sum", wallTime, timer.totalTime(getBaseTimeUnit())));
+				writeMetricWithSuffix(commands, timer.getId(), DuplicatePolicy.SUM, "sum", wallTime,
+						timer.totalTime(getBaseTimeUnit())));
 	}
 
 	Stream<RedisFuture<Long>> writeTimer(RedisTimeSeriesAsyncCommands<String, String> commands, Timer timer) {
@@ -226,10 +232,11 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 
 		List<RedisFuture<Long>> metrics = new ArrayList<>();
 
-		metrics.add(writeMetricWithSuffix(commands, timer.getId(), "count", wallTime, count));
-		metrics.add(
-				writeMetricWithSuffix(commands, timer.getId(), "sum", wallTime, timer.totalTime(getBaseTimeUnit())));
-		metrics.add(writeMetricWithSuffix(commands, timer.getId(), "max", wallTime, timer.max(getBaseTimeUnit())));
+		metrics.add(writeMetricWithSuffix(commands, timer.getId(), DuplicatePolicy.SUM, "count", wallTime, count));
+		metrics.add(writeMetricWithSuffix(commands, timer.getId(), DuplicatePolicy.SUM, "sum", wallTime,
+				timer.totalTime(getBaseTimeUnit())));
+		metrics.add(writeMetricWithSuffix(commands, timer.getId(), DuplicatePolicy.MAX, "max", wallTime,
+				timer.max(getBaseTimeUnit())));
 
 		if (percentileValues.length > 0) {
 			metrics.addAll(writePercentiles(commands, timer, wallTime, percentileValues));
@@ -250,8 +257,8 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		// satisfies https://prometheus.io/docs/concepts/metric_types/#summary
 		for (ValueAtPercentile v : percentileValues) {
 			metrics.add(writeMetric(commands,
-					meter.getId().withTag(new ImmutableTag("quantile", String.valueOf(v.percentile()))), wallTime,
-					(forTimer ? v.value(getBaseTimeUnit()) : v.value())));
+					meter.getId().withTag(new ImmutableTag("quantile", String.valueOf(v.percentile()))),
+					DuplicatePolicy.LAST, wallTime, (forTimer ? v.value(getBaseTimeUnit()) : v.value())));
 		}
 
 		return metrics;
@@ -265,7 +272,7 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 			metrics.add(writeMetricWithSuffix(commands,
 					meter.getId().withTag(
 							Tag.of("vmrange", getRangeTagValue(timeUnit == null ? c.bucket() : c.bucket(timeUnit)))),
-					"bucket", wallTime, c.count()));
+					DuplicatePolicy.SUM, "bucket", wallTime, c.count()));
 		}
 
 		return metrics;
@@ -276,20 +283,23 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 			FunctionCounter counter) {
 		double count = counter.count();
 		if (Double.isFinite(count)) {
-			return Stream.of(writeMetric(commands, counter.getId(), config().clock().wallTime(), count));
+			return Stream.of(
+					writeMetric(commands, counter.getId(), DuplicatePolicy.SUM, config().clock().wallTime(), count));
 		}
 		return Stream.empty();
 	}
 
 	Stream<RedisFuture<Long>> writeCounter(RedisTimeSeriesAsyncCommands<String, String> commands, Counter counter) {
-		return Stream.of(writeMetric(commands, counter.getId(), config().clock().wallTime(), counter.count()));
+		return Stream.of(writeMetric(commands, counter.getId(), DuplicatePolicy.SUM, config().clock().wallTime(),
+				counter.count()));
 	}
 
 	// VisibleForTesting
 	Stream<RedisFuture<Long>> writeGauge(RedisTimeSeriesAsyncCommands<String, String> commands, Gauge gauge) {
 		double value = gauge.value();
 		if (Double.isFinite(value)) {
-			return Stream.of(writeMetric(commands, gauge.getId(), config().clock().wallTime(), value));
+			return Stream
+					.of(writeMetric(commands, gauge.getId(), DuplicatePolicy.LAST, config().clock().wallTime(), value));
 		}
 		return Stream.empty();
 	}
@@ -299,7 +309,8 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 			TimeGauge timeGauge) {
 		double value = timeGauge.value(getBaseTimeUnit());
 		if (Double.isFinite(value)) {
-			return Stream.of(writeMetric(commands, timeGauge.getId(), config().clock().wallTime(), value));
+			return Stream.of(
+					writeMetric(commands, timeGauge.getId(), DuplicatePolicy.LAST, config().clock().wallTime(), value));
 		}
 		return Stream.empty();
 	}
@@ -315,10 +326,12 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 
 		List<RedisFuture<Long>> metrics = new ArrayList<>();
 
-		metrics.add(writeMetricWithSuffix(commands, timer.getId(), "active.count", wallTime, count));
-		metrics.add(writeMetricWithSuffix(commands, timer.getId(), "duration.sum", wallTime,
+		metrics.add(
+				writeMetricWithSuffix(commands, timer.getId(), DuplicatePolicy.SUM, "active.count", wallTime, count));
+		metrics.add(writeMetricWithSuffix(commands, timer.getId(), DuplicatePolicy.SUM, "duration.sum", wallTime,
 				timer.duration(getBaseTimeUnit())));
-		metrics.add(writeMetricWithSuffix(commands, timer.getId(), "max", wallTime, timer.max(getBaseTimeUnit())));
+		metrics.add(writeMetricWithSuffix(commands, timer.getId(), DuplicatePolicy.MAX, "max", wallTime,
+				timer.max(getBaseTimeUnit())));
 
 		if (percentileValues.length > 0) {
 			metrics.addAll(writePercentiles(commands, timer, wallTime, percentileValues));
@@ -357,18 +370,18 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 				break;
 			}
 
-			return commands.add(name, wallTime, ms.getValue(), createOptions(labels(localTags)));
+			return commands.add(name, wallTime, ms.getValue(), createOptions(labels(localTags), DuplicatePolicy.LAST));
 		});
 	}
 
 	RedisFuture<Long> writeMetricWithSuffix(RedisTimeSeriesAsyncCommands<String, String> commands, Meter.Id id,
-			String suffix, long wallTime, double value) {
+			DuplicatePolicy duplicatePolicy, String suffix, long wallTime, double value) {
 		// usually tagKeys and metricNames naming rules are the same
 		// but we can't call getConventionName again after adding suffix
 		return commands.add(
 				suffix.isEmpty() ? getConventionName(id)
 						: config().namingConvention().tagKey(getConventionName(id) + "." + suffix),
-				wallTime, value, createOptions(labels(id)));
+				wallTime, value, createOptions(labels(id), duplicatePolicy));
 	}
 
 	@Override
@@ -385,13 +398,14 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 
 	}
 
-	private CreateOptions<String, String> createOptions(Label<String, String>[] labels) {
-		return CreateOptions.<String, String>builder().labels(labels).build();
+	private CreateOptions<String, String> createOptions(Label<String, String>[] labels,
+			DuplicatePolicy duplicatePolicy) {
+		return CreateOptions.<String, String>builder().labels(labels).policy(duplicatePolicy).build();
 	}
 
-	RedisFuture<Long> writeMetric(RedisTimeSeriesAsyncCommands<String, String> commands, Meter.Id id, long wallTime,
-			double value) {
-		return writeMetricWithSuffix(commands, id, "", wallTime, value);
+	RedisFuture<Long> writeMetric(RedisTimeSeriesAsyncCommands<String, String> commands, Meter.Id id,
+			DuplicatePolicy duplicatePolicy, long wallTime, double value) {
+		return writeMetricWithSuffix(commands, id, duplicatePolicy, "", wallTime, value);
 	}
 
 	private Label<String, String>[] labels(Meter.Id id) {
