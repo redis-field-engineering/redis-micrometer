@@ -234,6 +234,8 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		metrics.add(writeMetricWithSuffix(commands, timer.getId(), DuplicatePolicy.SUM, "count", wallTime, count));
 		metrics.add(writeMetricWithSuffix(commands, timer.getId(), DuplicatePolicy.SUM, "sum", wallTime,
 				timer.totalTime(getBaseTimeUnit())));
+		metrics.add(writeMetricWithSuffix(commands, timer.getId(), DuplicatePolicy.LAST, "mean", wallTime,
+				timer.mean(getBaseTimeUnit())));
 		metrics.add(writeMetricWithSuffix(commands, timer.getId(), DuplicatePolicy.MAX, "max", wallTime,
 				timer.max(getBaseTimeUnit())));
 
@@ -356,31 +358,43 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 			switch (ms.getStatistic()) {
 			case TOTAL:
 			case TOTAL_TIME:
-				name += ".sum";
+				name += ":sum";
 				break;
 			case MAX:
-				name += ".max";
+				name += ":max";
 				break;
 			case ACTIVE_TASKS:
-				name += ".active.count";
+				name += ":active:count";
 				break;
 			case DURATION:
-				name += ".duration.sum";
+				name += ":duration:sum";
 				break;
 			}
 
-			return commands.add(name, wallTime, ms.getValue(), createOptions(labels(localTags), DuplicatePolicy.LAST));
+			return commands.add(prefix(name), wallTime, ms.getValue(),
+					createOptions(labels(localTags), DuplicatePolicy.LAST));
 		});
 	}
 
-	RedisFuture<Long> writeMetricWithSuffix(RedisTimeSeriesAsyncCommands<String, String> commands, Meter.Id id,
+	private String prefix(String name) {
+		if (config.keyspace() == null) {
+			return name;
+		}
+		return config.keyspace() + RedisTimeSeriesNamingConvention.KEY_SEPARATOR + name;
+	}
+
+	private RedisFuture<Long> writeMetricWithSuffix(RedisTimeSeriesAsyncCommands<String, String> commands, Meter.Id id,
 			DuplicatePolicy duplicatePolicy, String suffix, long wallTime, double value) {
+		return commands.add(prefix(name(id, suffix)), wallTime, value, createOptions(labels(id), duplicatePolicy));
+	}
+
+	private String name(Id id, String suffix) {
 		// usually tagKeys and metricNames naming rules are the same
 		// but we can't call getConventionName again after adding suffix
-		return commands.add(
-				suffix.isEmpty() ? getConventionName(id)
-						: config().namingConvention().tagKey(getConventionName(id) + "." + suffix),
-				wallTime, value, createOptions(labels(id), duplicatePolicy));
+		if (suffix.isEmpty()) {
+			return getConventionName(id);
+		}
+		return config().namingConvention().tagKey(getConventionName(id) + "." + suffix);
 	}
 
 	@Override

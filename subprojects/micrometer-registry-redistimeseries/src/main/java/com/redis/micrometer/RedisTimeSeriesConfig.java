@@ -33,6 +33,10 @@ public interface RedisTimeSeriesConfig extends StepRegistryConfig {
 		return PropertyValidator.getInteger(this, "poolMaxTotal").orElse(GenericObjectPoolConfig.DEFAULT_MAX_TOTAL);
 	}
 
+	default String keyspace() {
+		return PropertyValidator.getString(this, "keyspace").orElse(null);
+	}
+
 	@Override
 	default Validated<?> validate() {
 		return checkAll(this, c -> StepRegistryConfig.validate(c), checkRequired("uri", RedisTimeSeriesConfig::uri));
