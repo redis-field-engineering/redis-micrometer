@@ -69,16 +69,25 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 	private final Logger log = LoggerFactory.getLogger(RedisTimeSeriesMeterRegistry.class);
 
 	private final RedisTimeSeriesConfig config;
-	private AbstractRedisClient client;
+	private final boolean shutdownClient;
+	private final AbstractRedisClient client;
 	private GenericObjectPool<StatefulRedisModulesConnection<String, String>> pool;
 
 	public RedisTimeSeriesMeterRegistry(RedisTimeSeriesConfig config, Clock clock) {
-		this(config, clock, DEFAULT_THREAD_FACTORY);
+		this(config, clock, config.cluster() ? RedisModulesClusterClient.create(config.uri())
+				: RedisModulesClient.create(config.uri()), true, DEFAULT_THREAD_FACTORY);
 	}
 
-	private RedisTimeSeriesMeterRegistry(RedisTimeSeriesConfig config, Clock clock, ThreadFactory threadFactory) {
+	public RedisTimeSeriesMeterRegistry(RedisTimeSeriesConfig config, Clock clock, AbstractRedisClient client) {
+		this(config, clock, client, false, DEFAULT_THREAD_FACTORY);
+	}
+
+	private RedisTimeSeriesMeterRegistry(RedisTimeSeriesConfig config, Clock clock, AbstractRedisClient client,
+			boolean shutdownClient, ThreadFactory threadFactory) {
 		super(config, clock);
 		this.config = config;
+		this.client = client;
+		this.shutdownClient = shutdownClient;
 		config().namingConvention(new RedisTimeSeriesNamingConvention());
 		start(threadFactory);
 	}
@@ -97,17 +106,9 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		return poolConfig;
 	}
 
-	private static AbstractRedisClient client(RedisTimeSeriesConfig config) {
-		if (config.cluster()) {
-			return RedisModulesClusterClient.create(config.uri());
-		}
-		return RedisModulesClient.create(config.uri());
-	}
-
 	@Override
 	public void start(ThreadFactory threadFactory) {
 		if (config.enabled()) {
-			client = client(config);
 			pool = ConnectionPoolSupport.createGenericObjectPool(connectionSupplier(client), poolConfig(config));
 			super.start(threadFactory);
 		}
@@ -118,7 +119,7 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		if (pool != null) {
 			pool.close();
 		}
-		if (client != null) {
+		if (shutdownClient && client != null) {
 			client.shutdown();
 			client.getResources().shutdown();
 		}
