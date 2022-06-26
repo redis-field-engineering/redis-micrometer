@@ -16,6 +16,8 @@ import io.micrometer.core.instrument.step.StepRegistryConfig;
  */
 public interface RedisTimeSeriesConfig extends StepRegistryConfig {
 
+	RedisTimeSeriesConfig DEFAULT = k -> null;
+
 	@Override
 	default String prefix() {
 		return "redistimeseries";
