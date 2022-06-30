@@ -24,6 +24,7 @@ import com.redis.lettucemod.RedisModulesClient;
 import com.redis.lettucemod.api.StatefulRedisModulesConnection;
 import com.redis.lettucemod.api.async.RedisModulesAsyncCommands;
 import com.redis.lettucemod.api.async.RedisTimeSeriesAsyncCommands;
+import com.redis.lettucemod.api.sync.RedisModulesCommands;
 import com.redis.lettucemod.cluster.RedisModulesClusterClient;
 import com.redis.lettucemod.timeseries.AddOptions;
 import com.redis.lettucemod.timeseries.CreateOptions;
@@ -170,7 +171,11 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 
 	private void createMetersForPercentiles(Id id, DistributionStatisticConfig distributionStatisticConfig)
 			throws Exception {
-		for (double percentile : distributionStatisticConfig.getPercentiles()) {
+		double[] percentiles = distributionStatisticConfig.getPercentiles();
+		if (percentiles == null) {
+			return;
+		}
+		for (double percentile : percentiles) {
 			createMeter(quantile(id, percentile), DuplicatePolicy.LAST);
 		}
 	}
@@ -178,7 +183,10 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 	private void createMeter(Id id, DuplicatePolicy duplicatePolicy, String... suffixes) throws Exception {
 		String key = key(id, suffixes);
 		try (StatefulRedisModulesConnection<String, String> connection = pool.borrowObject()) {
-			connection.sync().create(key, createOptions(id, duplicatePolicy));
+			RedisModulesCommands<String, String> commands = connection.sync();
+			if (commands.exists(key) == 0) {
+				commands.create(key, createOptions(id, duplicatePolicy));
+			}
 		}
 	}
 
