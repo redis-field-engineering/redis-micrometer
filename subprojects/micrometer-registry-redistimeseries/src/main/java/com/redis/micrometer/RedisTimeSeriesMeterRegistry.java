@@ -30,6 +30,7 @@ import com.redis.lettucemod.timeseries.AddOptions;
 import com.redis.lettucemod.timeseries.CreateOptions;
 import com.redis.lettucemod.timeseries.DuplicatePolicy;
 import com.redis.lettucemod.timeseries.Label;
+import com.redis.lettucemod.timeseries.Sample;
 
 import io.lettuce.core.AbstractRedisClient;
 import io.lettuce.core.LettuceFutures;
@@ -185,7 +186,7 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		try (StatefulRedisModulesConnection<String, String> connection = pool.borrowObject()) {
 			RedisModulesCommands<String, String> commands = connection.sync();
 			if (commands.exists(key) == 0) {
-				commands.create(key, createOptions(id, duplicatePolicy));
+				commands.tsCreate(key, createOptions(id, duplicatePolicy));
 			}
 		}
 	}
@@ -400,15 +401,15 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 				String statName = measurement.getStatistic().getTagValueRepresentation();
 				List<Label<String, String>> labels = labels(meter.getId());
 				labels.add(Label.of("statistic", statName));
-				futures.add(
-						commands.add(key(meter.getId(), statName), wallTime, value, AddOptions.<String, String>builder()
-								.policy(DuplicatePolicy.LAST).labels(labels.toArray(Label[]::new)).build()));
+				futures.add(commands.tsAdd(key(meter.getId(), statName), Sample.of(wallTime, value),
+						AddOptions.<String, String>builder().policy(DuplicatePolicy.LAST)
+								.labels(labels.toArray(Label[]::new)).build()));
 			}
 			return futures.stream();
 		}
 
 		private RedisFuture<Long> writeMetric(Meter.Id id, long wallTime, double value, String... suffixes) {
-			return commands.add(key(id, suffixes), wallTime, value);
+			return commands.tsAdd(key(id, suffixes), Sample.of(wallTime, value));
 		}
 
 		private List<RedisFuture<Long>> writeHistogram(long wallTime, Meter meter, CountAtBucket[] histogramCounts,

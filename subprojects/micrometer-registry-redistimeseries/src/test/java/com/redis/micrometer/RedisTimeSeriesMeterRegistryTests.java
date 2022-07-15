@@ -90,7 +90,7 @@ class RedisTimeSeriesMeterRegistryTests {
 	void writeGauge() throws Exception {
 		registry.gauge("my.gauge", 1d);
 		registry.write(registry.get("my.gauge").gauge());
-		List<Sample> samples = sync.range("my:gauge",
+		List<Sample> samples = sync.tsRange("my:gauge",
 				TimeRange.from(System.currentTimeMillis() - 1000).to(System.currentTimeMillis()).build());
 		Assertions.assertEquals(1, samples.size());
 		Assertions.assertEquals(1d, samples.get(0).getValue());
@@ -100,7 +100,7 @@ class RedisTimeSeriesMeterRegistryTests {
 	void writeCounter() throws Exception {
 		registry.counter("my.counter").increment();
 		registry.write(registry.get("my.counter").counter());
-		List<Sample> samples = sync.range("my:counter", TimeRange.unbounded());
+		List<Sample> samples = sync.tsRange("my:counter", TimeRange.unbounded());
 		Assertions.assertEquals(1, samples.size());
 	}
 
@@ -127,7 +127,7 @@ class RedisTimeSeriesMeterRegistryTests {
 		AtomicReference<Double> obj = new AtomicReference<>(1d);
 		registry.more().timeGauge("my.time.gauge", Tags.empty(), obj, TimeUnit.SECONDS, AtomicReference::get);
 		registry.write(registry.get("my.time.gauge").timeGauge());
-		List<Sample> samples = sync.range("my:time:gauge",
+		List<Sample> samples = sync.tsRange("my:time:gauge",
 				TimeRange.from(System.currentTimeMillis() - 1000).to(System.currentTimeMillis()).build());
 		Assertions.assertEquals(1, samples.size());
 		Assertions.assertEquals(1000, samples.get(0).getValue());
@@ -171,7 +171,7 @@ class RedisTimeSeriesMeterRegistryTests {
 		List<GetResult<String, String>> getResults = sync.tsMgetWithLabels("tag2=value");
 		Assertions.assertEquals(1, getResults.size());
 		Assertions.assertEquals(1d, getResults.get(0).getSample().getValue());
-		List<RangeResult<String, String>> results = sync.mrange(
+		List<RangeResult<String, String>> results = sync.tsMrange(
 				TimeRange.from(System.currentTimeMillis() - 1000).to(System.currentTimeMillis()).build(),
 				MRangeOptions.<String, String>filters("tag1=value")
 						.aggregation(
@@ -191,7 +191,7 @@ class RedisTimeSeriesMeterRegistryTests {
 				.register(registry);
 		registry.write(meter);
 		Assertions.assertEquals(2, connection.sync()
-				.mrange(TimeRange.unbounded(), MRangeOptions.<String, String>filters("mytag=value").build()).size());
+				.tsMrange(TimeRange.unbounded(), MRangeOptions.<String, String>filters("mytag=value").build()).size());
 	}
 
 }
