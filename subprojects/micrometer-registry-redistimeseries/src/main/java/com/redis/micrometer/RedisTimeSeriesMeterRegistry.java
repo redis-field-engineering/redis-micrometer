@@ -12,13 +12,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.function.ToDoubleFunction;
 import java.util.function.ToLongFunction;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.apache.commons.pool2.impl.GenericObjectPool;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import com.redis.lettucemod.RedisModulesClient;
 import com.redis.lettucemod.api.StatefulRedisModulesConnection;
@@ -79,7 +79,7 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 	private static final String SUFFIX_ACTIVE_COUNT = "active.count";
 	private static final String SUFFIX_BUCKET = "bucket";
 
-	private final Logger log = LoggerFactory.getLogger(RedisTimeSeriesMeterRegistry.class);
+	private final Logger log = Logger.getLogger(RedisTimeSeriesMeterRegistry.class.getName());
 
 	private final RedisTimeSeriesConfig config;
 	private final boolean shutdownClient;
@@ -196,7 +196,7 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		try {
 			createMeter(id, DuplicatePolicy.SUM);
 		} catch (Exception e) {
-			log.error("Could not create counter " + id, e);
+			log.log(Level.SEVERE, e, () -> "Could not create counter " + id);
 		}
 		return super.newCounter(id);
 	}
@@ -211,7 +211,7 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 			createMeter(id, DuplicatePolicy.LAST, SUFFIX_MEAN);
 			createMetersForPercentiles(id, distributionStatisticConfig);
 		} catch (Exception e) {
-			log.error("Could not create distribution summary " + id, e);
+			log.log(Level.SEVERE, e, () -> "Could not distribution summary " + id);
 		}
 		return new StepDistributionSummary(id, clock, distributionStatisticConfig, scale, config.step().toMillis(),
 				true);
@@ -222,7 +222,7 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		try {
 			createMeter(id, DuplicatePolicy.SUM);
 		} catch (Exception e) {
-			log.error("Could not create function counter " + id, e);
+			log.log(Level.SEVERE, e, () -> "Could not create function counter " + id);
 		}
 		return super.newFunctionCounter(id, obj, countFunction);
 	}
@@ -234,7 +234,7 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 			createMeter(id, DuplicatePolicy.SUM, SUFFIX_COUNT);
 			createMeter(id, DuplicatePolicy.SUM, SUFFIX_SUM);
 		} catch (Exception e) {
-			log.error("Could not create function timer " + id, e);
+			log.log(Level.SEVERE, e, () -> "Could not create function timer " + id);
 		}
 		return super.newFunctionTimer(id, obj, countFunction, totalTimeFunction, totalTimeFunctionUnit);
 	}
@@ -244,7 +244,7 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		try {
 			createMeter(id, DuplicatePolicy.LAST);
 		} catch (Exception e) {
-			log.error("Could not create gauge " + id, e);
+			log.log(Level.SEVERE, e, () -> "Could not create gauge " + id);
 		}
 		return super.newGauge(id, obj, valueFunction);
 	}
@@ -258,7 +258,7 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 			createMetersForPercentiles(id, distributionStatisticConfig);
 			createMetersForHistograms(id, distributionStatisticConfig);
 		} catch (Exception e) {
-			log.error("Could not create long task timer " + id, e);
+			log.log(Level.SEVERE, e, () -> "Could not create long task timer " + id);
 		}
 		return super.newLongTaskTimer(id, distributionStatisticConfig);
 	}
@@ -268,7 +268,7 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		try {
 			createMeter(id, DuplicatePolicy.LAST);
 		} catch (Exception e) {
-			log.error("Could not create time gauge " + id, e);
+			log.log(Level.SEVERE, e, () -> "Could not create time gauge " + id);
 		}
 		return super.newTimeGauge(id, obj, valueFunctionUnit, valueFunction);
 	}
@@ -284,7 +284,7 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 			createMetersForPercentiles(id, distributionStatisticConfig);
 			createMetersForHistograms(id, distributionStatisticConfig);
 		} catch (Exception e) {
-			log.error("Could not create timer " + id, e);
+			log.log(Level.SEVERE, e, () -> "Could not create timer " + id);
 		}
 		return new StepTimer(id, clock, distributionStatisticConfig, pauseDetector, getBaseTimeUnit(),
 				this.config.step().toMillis(), true);
@@ -300,7 +300,7 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 			try {
 				write(batch);
 			} catch (Exception e) {
-				log.error("Could not get publish measurements", e);
+				log.log(Level.SEVERE, "Could not publish measurements", e);
 			}
 		}
 	}
