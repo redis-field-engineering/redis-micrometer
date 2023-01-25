@@ -314,18 +314,18 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 			return;
 		}
 		try (StatefulRedisModulesConnection<String, String> connection = pool.borrowObject()) {
+			connection.setAutoFlushCommands(false);
 			RedisModulesAsyncCommands<String, String> commands = connection.async();
-			commands.setAutoFlushCommands(false);
 			Writer writer = new Writer(commands);
 			List<RedisFuture<Long>> futures = batch.stream()
 					.flatMap(meter -> meter.match(writer::writeGauge, writer::writeCounter, writer::writeTimer,
 							writer::writeDistributionSummary, writer::writeLongTaskTimer, writer::writeTimeGauge,
 							writer::writeFunctionCounter, writer::writeFunctionTimer, writer::writeCustomMetric))
 					.collect(Collectors.toList());
-			commands.flushCommands();
+			connection.flushCommands();
 			LettuceFutures.awaitAll(connection.getTimeout().toMillis(), TimeUnit.MILLISECONDS,
 					futures.toArray(new Future[0]));
-			commands.setAutoFlushCommands(true);
+			connection.setAutoFlushCommands(true);
 		}
 	}
 

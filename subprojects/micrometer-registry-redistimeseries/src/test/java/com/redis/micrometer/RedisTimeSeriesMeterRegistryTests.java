@@ -24,7 +24,7 @@ import com.redis.lettucemod.timeseries.MRangeOptions;
 import com.redis.lettucemod.timeseries.RangeResult;
 import com.redis.lettucemod.timeseries.Sample;
 import com.redis.lettucemod.timeseries.TimeRange;
-import com.redis.testcontainers.RedisModulesContainer;
+import com.redis.testcontainers.RedisStackContainer;
 
 import io.micrometer.core.instrument.Clock;
 import io.micrometer.core.instrument.LongTaskTimer;
@@ -38,8 +38,8 @@ import io.micrometer.core.instrument.Tags;
 class RedisTimeSeriesMeterRegistryTests {
 
 	@Container
-	private static final RedisModulesContainer REDIS = new RedisModulesContainer(
-			RedisModulesContainer.DEFAULT_IMAGE_NAME.withTag(RedisModulesContainer.DEFAULT_TAG));
+	private static final RedisStackContainer REDIS = new RedisStackContainer(
+			RedisStackContainer.DEFAULT_IMAGE_NAME.withTag(RedisStackContainer.DEFAULT_TAG));
 
 	private static RedisModulesClient client;
 
