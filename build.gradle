@@ -2,18 +2,18 @@ config {
 	info {
 		description = 'Micrometer registry for RedisTimeSeries'
 		inceptionYear = '2022'
-		tags = ['micrometer', 'registry', 'redis', 'redistimeseries']
+		tags = ['micrometer', 'redis', 'timeseries']
 
 		links {
-			website = "https://github.com/redis-field-engineering/${project.rootProject.name}"
-			issueTracker = "https://github.com/redis-field-engineering/${project.rootProject.name}/issues"
-			scm = "https://github.com/redis-field-engineering/${project.rootProject.name}.git"
+			website = "https://github.com/redis-developer/${project.rootProject.name}"
+			issueTracker = "https://github.com/redis-developer/${project.rootProject.name}/issues"
+			scm = "https://github.com/redis-developer/${project.rootProject.name}.git"
 		}
 
 		scm {
-			url = "https://github.com/redis-field-engineering/${project.rootProject.name}"
-			connection = "scm:git:https://github.com/redis-field-engineering/${project.rootProject.name}.git"
-			developerConnection = "scm:git:git@github.com:redis-field-engineering/${project.rootProject.name}.git"
+			url = "https://github.com/redis-developer/${project.rootProject.name}"
+			connection = "scm:git:https://github.com/redis-developer/${project.rootProject.name}.git"
+			developerConnection = "scm:git:git@github.com:redis-developer/${project.rootProject.name}.git"
 		}
 
 		specification {
@@ -22,6 +22,27 @@ config {
 
 		implementation {
 			enabled = true
+		}
+		
+		people {
+            person {
+                id = 'jruaux'
+                name = 'Julien Ruaux'
+                roles = ['developer', 'author']
+            }
+        }
+	}
+	
+    docs {
+		javadoc {
+			options {
+				autoLinks {
+					enabled = false
+				}
+			}
+			aggregate {
+				enabled = false
+			}
 		}
 	}
 
@@ -34,25 +55,18 @@ config {
 		}
 	}
 
-	docs {
-		javadoc {
-			options {
-				autoLinks {
-					enabled = false
-				}
-			}
-			aggregate {
-				enabled = false
-			}
-		}
-	}
+	coverage {
+        jacoco {
+            enabled = true
+            toolVersion = jacocoVersion
+        }
+    }
 }
 
 allprojects {
 	repositories {
-		gradlePluginPortal()
-		mavenCentral()
 		mavenLocal()
+		gradlePluginPortal()
 	}
 
 	tasks.withType(GenerateModuleMetadata) {
@@ -65,12 +79,11 @@ subprojects {
 		info {
 			description = project.project_description
 		}
-	    coverage {
-	        jacoco {
-	            toolVersion = '0.8.8'
-	        }
-	    }
 	}
+	
+	license {
+        exclude('build/**')
+    }
 	
 	dependencies {
         testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine'
@@ -88,7 +101,17 @@ subprojects {
 		enabled = true
 		archiveClassifier = ''
 	}
+	
+    configurations {
+        all*.exclude module: 'spring-boot-starter-logging'
+    }
 
-	sourceCompatibility = 8
-    targetCompatibility = 8
+    configurations.all {
+		resolutionStrategy.eachDependency { DependencyResolveDetails details ->
+			if (details.requested.name == 'lettuce-core' ) {
+				details.useVersion lettuceVersion
+			}
+		}
+	}
+
 }
