@@ -1,61 +1,59 @@
 config {
-	info {
-		description = 'Micrometer registry for RedisTimeSeries'
-		inceptionYear = '2022'
-		tags = ['micrometer', 'redis', 'timeseries']
+    info {
+        description = 'Micrometer registry for RedisTimeSeries'
+        inceptionYear = '2022'
+        tags = ['micrometer', 'redis', 'timeseries']
 
-		links {
-			website = "https://github.com/redis-developer/${project.rootProject.name}"
-			issueTracker = "https://github.com/redis-developer/${project.rootProject.name}/issues"
-			scm = "https://github.com/redis-developer/${project.rootProject.name}.git"
-		}
-
-		scm {
-			url = "https://github.com/redis-developer/${project.rootProject.name}"
-			connection = "scm:git:https://github.com/redis-developer/${project.rootProject.name}.git"
-			developerConnection = "scm:git:git@github.com:redis-developer/${project.rootProject.name}.git"
-		}
-
-		specification {
-			enabled = true
-		}
-
-		implementation {
-			enabled = true
-		}
-		
-		people {
+        links {
+            website      = "https://github.com/redis-developer/${project.rootProject.name}"
+            issueTracker = "https://github.com/redis-developer/${project.rootProject.name}/issues"
+            scm          = "https://github.com/redis-developer/${project.rootProject.name}.git"
+        }
+        
+        scm {
+            url                 = "https://github.com/redis-developer/${project.rootProject.name}"
+            connection          = "scm:git:https://github.com/redis-developer/${project.rootProject.name}.git"
+            developerConnection = "scm:git:git@github.com:redis-developer/${project.rootProject.name}.git"
+        }
+        
+        specification {
+            enabled = true
+        }
+        
+        implementation {
+            enabled = true
+        }
+        
+        people {
             person {
-                id = 'jruaux'
-                name = 'Julien Ruaux'
+                id    = 'jruaux'
+                name  = 'Julien Ruaux'
                 roles = ['developer', 'author']
             }
         }
-	}
-	
+    }
+    
     docs {
-		javadoc {
-			options {
-				autoLinks {
-					enabled = false
-				}
-			}
-			aggregate {
-				enabled = false
-			}
-		}
-	}
-
-	licensing {
-		enabled = false
-		licenses {
-			license {
-				id = 'Apache-2.0'
-			}
-		}
-	}
-
-	coverage {
+        javadoc {
+            autoLinks {
+                enabled = false
+            }
+        }
+        sourceHtml {
+            enabled = false
+        }
+    }
+    
+    licensing {
+        enabled = false
+        licenses {
+            license {
+                id = 'Apache-2.0'
+            }
+        }
+    }
+    
+    coverage {
         jacoco {
             enabled = true
             toolVersion = jacocoVersion
@@ -64,54 +62,60 @@ config {
 }
 
 allprojects {
-	repositories {
-		mavenLocal()
-		gradlePluginPortal()
-	}
-
-	tasks.withType(GenerateModuleMetadata) {
-		enabled = false
-	}
+    repositories {
+        mavenLocal()
+        gradlePluginPortal()
+    }
+    
+    tasks.withType(GenerateModuleMetadata) {
+        enabled = false
+    }
+    
+    tasks.withType(JavaCompile) {
+        options.encoding = 'UTF-8'
+    }
 }
 
 subprojects {
-	config {
-		info {
-			description = project.project_description
-		}
-	}
-	
-	license {
+    config {
+        info {
+            description = project.project_description
+        }
+    }
+    
+    license {
         exclude('build/**')
     }
-	
-	dependencies {
+    
+    dependencies {
         testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine'
+        testImplementation(group: 'com.redis.testcontainers', name: 'testcontainers-redis-junit', version: testcontainersRedisVersion) {
+            exclude group: 'com.redis', module: 'lettucemod'
+        }
     }
     
     test {
         useJUnitPlatform()
     }
     
-	bootJar {
-		enabled = false
-	}
-	
-	jar {
-		enabled = true
-		archiveClassifier = ''
-	}
-	
+    bootJar {
+        enabled = false
+    }
+    
+    jar {
+        enabled = true
+        archiveClassifier = ''
+    }
+    
     configurations {
         all*.exclude module: 'spring-boot-starter-logging'
     }
-
+    
     configurations.all {
-		resolutionStrategy.eachDependency { DependencyResolveDetails details ->
-			if (details.requested.name == 'lettuce-core' ) {
-				details.useVersion lettuceVersion
-			}
-		}
-	}
-
+        resolutionStrategy.eachDependency { DependencyResolveDetails details ->
+            if (details.requested.name == 'lettuce-core' ) {
+                details.useVersion lettuceVersion
+            }
+        }
+    }
 }
