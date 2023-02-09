@@ -183,10 +183,12 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 
 	private void createMeter(Id id, DuplicatePolicy duplicatePolicy, String... suffixes) throws Exception {
 		String key = key(id, suffixes);
-		try (StatefulRedisModulesConnection<String, String> connection = pool.borrowObject()) {
-			RedisModulesCommands<String, String> commands = connection.sync();
-			if (commands.exists(key) == 0) {
-				commands.tsCreate(key, createOptions(id, duplicatePolicy));
+		synchronized (client) {
+			try (StatefulRedisModulesConnection<String, String> connection = pool.borrowObject()) {
+				RedisModulesCommands<String, String> commands = connection.sync();
+				if (commands.exists(key) == 0) {
+					commands.tsCreate(key, createOptions(id, duplicatePolicy));
+				}
 			}
 		}
 	}
