@@ -16,11 +16,13 @@ import io.micrometer.core.instrument.step.StepRegistryConfig;
  */
 public interface RedisTimeSeriesConfig extends StepRegistryConfig {
 
+	String DEFAULT_PREFIX = "redis";
+
 	RedisTimeSeriesConfig DEFAULT = k -> null;
 
 	@Override
 	default String prefix() {
-		return "redistimeseries";
+		return DEFAULT_PREFIX;
 	}
 
 	default String uri() {
@@ -31,8 +33,8 @@ public interface RedisTimeSeriesConfig extends StepRegistryConfig {
 		return PropertyValidator.getBoolean(this, "cluster").orElse(false);
 	}
 
-	default int poolMaxTotal() {
-		return PropertyValidator.getInteger(this, "poolMaxTotal").orElse(GenericObjectPoolConfig.DEFAULT_MAX_TOTAL);
+	default int poolSize() {
+		return PropertyValidator.getInteger(this, "pool.size").orElse(GenericObjectPoolConfig.DEFAULT_MAX_TOTAL);
 	}
 
 	default String keyspace() {

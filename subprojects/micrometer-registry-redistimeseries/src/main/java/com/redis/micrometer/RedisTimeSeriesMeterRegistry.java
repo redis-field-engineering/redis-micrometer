@@ -115,7 +115,7 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 	private static GenericObjectPoolConfig<StatefulRedisModulesConnection<String, String>> poolConfig(
 			RedisTimeSeriesConfig config) {
 		GenericObjectPoolConfig<StatefulRedisModulesConnection<String, String>> poolConfig = new GenericObjectPoolConfig<>();
-		poolConfig.setMaxTotal(config.poolMaxTotal());
+		poolConfig.setMaxTotal(config.poolSize());
 		return poolConfig;
 	}
 
