@@ -4,8 +4,11 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -186,12 +189,14 @@ abstract class BaseRegistryTests {
 		String id = "writelongtasktimer.timer";
 		LongTaskTimer timer = LongTaskTimer.builder(id).tag("tag", "value").register(registry);
 		registry.write(timer);
+		String prefix = id + ".tag.value";
+		Set<String> expected = Stream
+				.of(key(prefix + ".active.count"), key(prefix + ".duration.sum"), key(prefix + ".max"))
+				.collect(Collectors.toSet());
 		List<GetResult<String, String>> results = connection.sync().tsMget("tag=value");
 		Assertions.assertEquals(3, results.size());
-		String prefix = id + ".tag.value";
-		Assertions.assertEquals(key(prefix + ".active.count"), results.get(0).getKey());
-		Assertions.assertEquals(key(prefix + ".duration.sum"), results.get(1).getKey());
-		Assertions.assertEquals(key(prefix + ".max"), results.get(2).getKey());
+		Assertions.assertEquals(expected, results.stream().map(GetResult::getKey).collect(Collectors.toSet()));
+
 	}
 
 	@Test
