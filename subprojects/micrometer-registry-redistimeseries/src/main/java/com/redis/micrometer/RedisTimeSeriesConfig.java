@@ -1,12 +1,6 @@
 package com.redis.micrometer;
 
-import static io.micrometer.core.instrument.config.MeterRegistryConfigValidator.checkAll;
-import static io.micrometer.core.instrument.config.MeterRegistryConfigValidator.checkRequired;
-
-import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
-
 import io.micrometer.core.instrument.config.validate.PropertyValidator;
-import io.micrometer.core.instrument.config.validate.Validated;
 import io.micrometer.core.instrument.step.StepRegistryConfig;
 
 /**
@@ -33,17 +27,8 @@ public interface RedisTimeSeriesConfig extends StepRegistryConfig {
 		return PropertyValidator.getBoolean(this, "cluster").orElse(false);
 	}
 
-	default int poolSize() {
-		return PropertyValidator.getInteger(this, "pool.size").orElse(GenericObjectPoolConfig.DEFAULT_MAX_TOTAL);
-	}
-
 	default String keyspace() {
 		return PropertyValidator.getString(this, "keyspace").orElse(null);
-	}
-
-	@Override
-	default Validated<?> validate() {
-		return checkAll(this, c -> StepRegistryConfig.validate(c), checkRequired("uri", RedisTimeSeriesConfig::uri));
 	}
 
 }
