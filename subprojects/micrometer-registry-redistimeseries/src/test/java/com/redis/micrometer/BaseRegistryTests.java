@@ -50,8 +50,10 @@ abstract class BaseRegistryTests {
 
 	@BeforeAll
 	public void setup() {
-		client = ClientBuilder.create(RedisURI.create(getRedisServer().getRedisURI()))
-				.cluster(getRedisServer().isCluster()).build();
+		RedisServer server = getRedisServer();
+		server.start();
+		RedisURI uri = RedisURI.create(server.getRedisURI());
+		client = ClientBuilder.create(uri).cluster(server.isCluster()).build();
 		connection = RedisModulesUtils.connection(client);
 	}
 
@@ -66,6 +68,7 @@ abstract class BaseRegistryTests {
 			client.shutdown();
 			client.getResources().shutdown();
 		}
+		getRedisServer().stop();
 	}
 
 	@BeforeEach
