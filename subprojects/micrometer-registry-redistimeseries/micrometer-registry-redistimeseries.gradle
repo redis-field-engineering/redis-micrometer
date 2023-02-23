@@ -7,3 +7,7 @@ dependencies {
     testImplementation 'io.micrometer:micrometer-test'
     testImplementation 'io.projectreactor.netty:reactor-netty-core'   
 }
+
+compileJava {
+    options.release = 8
+}
