@@ -74,6 +74,9 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 
 	private static final String ERROR_KEY_ALREADY_EXISTS = "ERR TSDB: key already exists";
 
+	private static final String TAG_STAT = "stat";
+	private static final String TAG_NAME = "name";
+
 	private final Logger log = Logger.getLogger(RedisTimeSeriesMeterRegistry.class.getName());
 
 	private final RedisTimeSeriesConfig config;
@@ -121,33 +124,10 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		super.stop();
 	}
 
-	private CreateOptions<String, String> createOptions(Meter.Id id, DuplicatePolicy duplicatePolicy) {
-		return createOptions(duplicatePolicy, labels(id));
-	}
-
-	@SuppressWarnings("unchecked")
-	private CreateOptions<String, String> createOptions(DuplicatePolicy duplicatePolicy,
-			List<Label<String, String>> labels) {
-		return CreateOptions.<String, String>builder().policy(duplicatePolicy).labels(labels.toArray(Label[]::new))
-				.build();
-	}
-
-	private List<Label<String, String>> labels(Meter.Id id) {
-		return labels(getConventionTags(id));
-	}
-
-	private List<Label<String, String>> labels(Iterable<Tag> tags) {
-		List<Label<String, String>> labels = new ArrayList<>();
-		for (Tag tag : tags) {
-			labels.add(Label.of(tag.getKey(), tag.getValue()));
-		}
-		return labels;
-	}
-
 	private void createMetersForHistograms(Id id, DistributionStatisticConfig distributionStatisticConfig) {
 		NavigableSet<Double> buckets = distributionStatisticConfig.getHistogramBuckets(false);
 		for (Double bucket : buckets) {
-			createMeter(vmrange(id, bucket, getBaseTimeUnit()), DuplicatePolicy.LAST, SUFFIX_BUCKET);
+			createMeter(vmrange(id, bucket, getBaseTimeUnit()), DuplicatePolicy.LAST);
 		}
 	}
 
@@ -161,8 +141,40 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		}
 	}
 
-	private void createMeter(Id id, DuplicatePolicy duplicatePolicy, String... suffixes) {
-		futures.add(commands.tsCreate(key(id, suffixes), createOptions(id, duplicatePolicy)));
+	private void createMeter(Id id, DuplicatePolicy duplicatePolicy, String suffix) {
+		createMeter(key(id, suffix), duplicatePolicy, tags(id, suffix));
+	}
+
+	private List<Tag> tags(Id id) {
+		List<Tag> tags = new ArrayList<>();
+		tags.add(Tag.of(TAG_NAME, id.getName()));
+		tags.addAll(getConventionTags(id));
+		return tags;
+	}
+
+	private List<Tag> tags(Id id, String suffix) {
+		List<Tag> tags = tags(id);
+		tags.add(Tag.of(TAG_STAT, suffix));
+		return tags;
+	}
+
+	private void createMeter(Id id, DuplicatePolicy duplicatePolicy) {
+		createMeter(key(id), duplicatePolicy, tags(id));
+	}
+
+	@SuppressWarnings("unchecked")
+	private void createMeter(String key, DuplicatePolicy duplicatePolicy, Iterable<Tag> tags) {
+		CreateOptions<String, String> options = CreateOptions.<String, String>builder().policy(duplicatePolicy)
+				.labels(labels(tags).toArray(new Label[0])).build();
+		futures.add(commands.tsCreate(key, options));
+	}
+
+	private List<Label<String, String>> labels(Iterable<Tag> tags) {
+		List<Label<String, String>> labels = new ArrayList<>();
+		for (Tag tag : tags) {
+			labels.add(Label.of(tag.getKey(), tag.getValue()));
+		}
+		return labels;
 	}
 
 	@Override
@@ -298,34 +310,33 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 	public void writeFunctionCounter(FunctionCounter counter) {
 		double count = counter.count();
 		if (Double.isFinite(count)) {
-			writeMetric(counter.getId(), config().clock().wallTime(), count);
+			write(counter, count);
 		}
 	}
 
 	public void writeCounter(Counter counter) {
-		writeMetric(counter.getId(), config().clock().wallTime(), counter.count());
+		write(counter, counter.count());
 	}
 
 	public void writeGauge(Gauge gauge) {
 		double value = gauge.value();
 		if (Double.isFinite(value)) {
-			writeMetric(gauge.getId(), config().clock().wallTime(), value);
+			write(gauge, value);
 		}
 	}
 
 	public void writeTimeGauge(TimeGauge timeGauge) {
 		double value = timeGauge.value(getBaseTimeUnit());
 		if (Double.isFinite(value)) {
-			writeMetric(timeGauge.getId(), config().clock().wallTime(), value);
+			write(timeGauge, value);
 		}
 	}
 
 	public void writeLongTaskTimer(LongTaskTimer timer) {
 		long wallTime = config().clock().wallTime();
-
-		writeMetric(timer.getId(), wallTime, timer.activeTasks(), SUFFIX_ACTIVE_COUNT);
-		writeMetric(timer.getId(), wallTime, timer.duration(getBaseTimeUnit()), SUFFIX_DURATION_SUM);
-		writeMetric(timer.getId(), wallTime, timer.max(getBaseTimeUnit()), SUFFIX_MAX);
+		write(timer, wallTime, timer.activeTasks(), SUFFIX_ACTIVE_COUNT);
+		write(timer, wallTime, timer.duration(getBaseTimeUnit()), SUFFIX_DURATION_SUM);
+		write(timer, wallTime, timer.max(getBaseTimeUnit()), SUFFIX_MAX);
 
 		HistogramSnapshot histogramSnapshot = timer.takeSnapshot();
 
@@ -349,21 +360,37 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 				continue;
 			}
 			String statName = measurement.getStatistic().getTagValueRepresentation();
-			List<Label<String, String>> labels = labels(meter.getId());
+			List<Label<String, String>> labels = new ArrayList<>(labels(tags(meter.getId())));
 			labels.add(Label.of("statistic", statName));
 			futures.add(commands.tsAdd(key(meter.getId(), statName), Sample.of(wallTime, value),
 					AddOptions.<String, String>builder().policy(DuplicatePolicy.LAST)
-							.labels(labels.toArray(Label[]::new)).build()));
+							.labels(labels.toArray(new Label[0])).build()));
 		}
 	}
 
-	private void writeMetric(Meter.Id id, long wallTime, double value, String... suffixes) {
-		futures.add(commands.tsAdd(key(id, suffixes), Sample.of(wallTime, value)));
+	private void write(Meter.Id id, long wallTime, double value, String suffix) {
+		write(key(id, suffix), wallTime, value);
+	}
+
+	private void write(Meter meter, long wallTime, double value, String suffix) {
+		write(meter.getId(), wallTime, value, suffix);
+	}
+
+	private void write(String key, long time, double value) {
+		futures.add(commands.tsAdd(key, Sample.of(time, value)));
+	}
+
+	private void write(Meter.Id id, long time, double value) {
+		write(key(id), time, value);
+	}
+
+	private void write(Meter meter, double value) {
+		write(meter.getId(), config().clock().wallTime(), value);
 	}
 
 	private void writeHistogram(long wallTime, Meter meter, CountAtBucket[] histogramCounts, TimeUnit timeUnit) {
 		for (CountAtBucket c : histogramCounts) {
-			writeMetric(vmrange(meter.getId(), c.bucket(), timeUnit), wallTime, c.count(), SUFFIX_BUCKET);
+			write(vmrange(meter.getId(), c.bucket(), timeUnit), wallTime, c.count(), SUFFIX_BUCKET);
 		}
 	}
 
@@ -373,10 +400,10 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		final ValueAtPercentile[] percentileValues = summary.takeSnapshot().percentileValues();
 		double count = summary.count();
 
-		writeMetric(summary.getId(), wallTime, count, SUFFIX_COUNT);
-		writeMetric(summary.getId(), wallTime, summary.totalAmount(), SUFFIX_SUM);
-		writeMetric(summary.getId(), wallTime, summary.max(), SUFFIX_MAX);
-		writeMetric(summary.getId(), wallTime, summary.mean(), SUFFIX_MEAN);
+		write(summary, wallTime, count, SUFFIX_COUNT);
+		write(summary, wallTime, summary.totalAmount(), SUFFIX_SUM);
+		write(summary, wallTime, summary.max(), SUFFIX_MAX);
+		write(summary, wallTime, summary.mean(), SUFFIX_MEAN);
 
 		if (percentileValues.length > 0) {
 			writePercentiles(summary, wallTime, percentileValues);
@@ -386,8 +413,8 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 
 	public void writeFunctionTimer(FunctionTimer timer) {
 		long wallTime = config().clock().wallTime();
-		writeMetric(timer.getId(), wallTime, timer.count(), SUFFIX_COUNT);
-		writeMetric(timer.getId(), wallTime, timer.totalTime(getBaseTimeUnit()), SUFFIX_SUM);
+		write(timer, wallTime, timer.count(), SUFFIX_COUNT);
+		write(timer, wallTime, timer.totalTime(getBaseTimeUnit()), SUFFIX_SUM);
 	}
 
 	public void writeTimer(Timer timer) {
@@ -397,10 +424,10 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		final ValueAtPercentile[] percentileValues = histogramSnapshot.percentileValues();
 		final CountAtBucket[] histogramCounts = histogramSnapshot.histogramCounts();
 
-		writeMetric(timer.getId(), wallTime, timer.count(), SUFFIX_COUNT);
-		writeMetric(timer.getId(), wallTime, timer.totalTime(getBaseTimeUnit()), SUFFIX_SUM);
-		writeMetric(timer.getId(), wallTime, timer.mean(getBaseTimeUnit()), SUFFIX_MEAN);
-		writeMetric(timer.getId(), wallTime, timer.max(getBaseTimeUnit()), SUFFIX_MAX);
+		write(timer, wallTime, timer.count(), SUFFIX_COUNT);
+		write(timer, wallTime, timer.totalTime(getBaseTimeUnit()), SUFFIX_SUM);
+		write(timer, wallTime, timer.mean(getBaseTimeUnit()), SUFFIX_MEAN);
+		write(timer, wallTime, timer.max(getBaseTimeUnit()), SUFFIX_MAX);
 
 		if (percentileValues.length > 0) {
 			writePercentiles(timer, wallTime, percentileValues);
@@ -411,10 +438,10 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		}
 	}
 
-	private void writePercentiles(Meter meter, long wallTime, ValueAtPercentile[] percentileValues) {
+	private void writePercentiles(Meter meter, long wallTime, ValueAtPercentile... percentileValues) {
 		boolean forTimer = meter instanceof Timer;
 		for (ValueAtPercentile v : percentileValues) {
-			writeMetric(quantile(meter.getId(), v.percentile()), wallTime,
+			write(quantile(meter.getId(), v.percentile()), wallTime,
 					(forTimer ? v.value(getBaseTimeUnit()) : v.value()));
 		}
 	}
@@ -433,13 +460,14 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		return id.withTag(Tag.of("vmrange", value));
 	}
 
-	private String key(Id id, String... suffixes) {
+	private String key(Id id) {
+		return prefix(getConventionName(id));
+	}
+
+	private String key(Id id, String suffix) {
 		// usually tagKeys and metricNames naming rules are the same
 		// but we can't call getConventionName again after adding suffix
-		if (suffixes.length == 0) {
-			return prefix(getConventionName(id));
-		}
-		return prefix(config().namingConvention().tagKey(getConventionName(id) + "." + String.join(".", suffixes)));
+		return prefix(config().namingConvention().tagKey(getConventionName(id) + "." + suffix));
 	}
 
 	private String prefix(String key) {
@@ -453,11 +481,9 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 	protected String getConventionName(Id id) {
 		StringBuilder hierarchicalName = new StringBuilder();
 		hierarchicalName.append(super.getConventionName(id));
-		for (Tag tag : id.getTagsAsIterable()) {
-			hierarchicalName.append(RedisTimeSeriesNamingConvention.KEY_SEPARATOR)
-					.append(config().namingConvention().tagKey(tag.getKey()))
-					.append(RedisTimeSeriesNamingConvention.KEY_SEPARATOR)
-					.append(config().namingConvention().tagValue(tag.getValue()));
+		for (Tag tag : getConventionTags(id)) {
+			hierarchicalName.append(RedisTimeSeriesNamingConvention.KEY_SEPARATOR).append(tag.getKey())
+					.append(RedisTimeSeriesNamingConvention.KEY_SEPARATOR).append(tag.getValue());
 		}
 		return hierarchicalName.toString();
 

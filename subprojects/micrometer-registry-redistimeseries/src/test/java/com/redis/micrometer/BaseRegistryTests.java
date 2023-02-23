@@ -21,11 +21,9 @@ import org.junit.jupiter.api.TestInstance.Lifecycle;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.redis.lettucemod.api.StatefulRedisModulesConnection;
-import com.redis.lettucemod.timeseries.Aggregation;
-import com.redis.lettucemod.timeseries.Aggregator;
 import com.redis.lettucemod.timeseries.GetResult;
+import com.redis.lettucemod.timeseries.Label;
 import com.redis.lettucemod.timeseries.MRangeOptions;
-import com.redis.lettucemod.timeseries.RangeResult;
 import com.redis.lettucemod.timeseries.Sample;
 import com.redis.lettucemod.timeseries.TimeRange;
 import com.redis.lettucemod.util.ClientBuilder;
@@ -48,8 +46,8 @@ import io.micrometer.core.instrument.Tags;
 abstract class BaseRegistryTests {
 
 	private AbstractRedisClient client;
-	private StatefulRedisModulesConnection<String, String> connection;
-	private RedisTimeSeriesMeterRegistry registry;
+	protected StatefulRedisModulesConnection<String, String> connection;
+	protected RedisTimeSeriesMeterRegistry registry;
 
 	@BeforeAll
 	public void setup() {
@@ -131,6 +129,27 @@ abstract class BaseRegistryTests {
 	}
 
 	@Test
+	void writeTimer() throws Exception {
+		String id = "writetimer.timer";
+		registry.timer(id).record(Duration.ofMillis(3));
+		registry.write(registry.get(id).timer());
+		List<Sample> samples = connection.sync().tsRange(key(id) + ":count", TimeRange.unbounded());
+		Assertions.assertEquals(1, samples.size());
+	}
+
+	@Test
+	void writeTimerWithTags() throws Exception {
+		String id = "writeTimerWithTags.timer";
+		String tagName = "mytag";
+		String tagValue = "tagvalue";
+		registry.timer(id, tagName, tagValue).record(Duration.ofMillis(3));
+		registry.write(registry.get(id).tags(tagName, tagValue).timer());
+		List<Sample> samples = connection.sync().tsRange(key(id) + ":" + tagName + ":" + tagValue + ":count",
+				TimeRange.unbounded());
+		Assertions.assertEquals(1, samples.size());
+	}
+
+	@Test
 	void writeGaugeShouldDropNanValue() throws Exception {
 		String id = "writegaugedropnan.gauge";
 		registry.gauge(id, Double.NaN);
@@ -200,25 +219,6 @@ abstract class BaseRegistryTests {
 	}
 
 	@Test
-	void testLabels() throws Exception {
-		String id = "testlabels.meter";
-		registry.gauge(id, Arrays.asList(Tag.of("tag1", "value"), Tag.of("tag2", "value")), 1d);
-		registry.write(registry.get(id).gauge());
-		List<GetResult<String, String>> getResults = connection.sync().tsMgetWithLabels("tag2=value");
-		Assertions.assertEquals(1, getResults.size());
-		Assertions.assertEquals(1d, getResults.get(0).getSample().getValue());
-		List<RangeResult<String, String>> results = connection.sync().tsMrange(
-				TimeRange.from(System.currentTimeMillis() - 1000).to(System.currentTimeMillis()).build(),
-				MRangeOptions.<String, String>filters("tag1=value")
-						.aggregation(
-								Aggregation.aggregator(Aggregator.AVG).bucketDuration(Duration.ofMillis(1)).build())
-						.build());
-		Assertions.assertEquals(1, results.size());
-		Assertions.assertEquals(1, results.get(0).getSamples().size());
-		Assertions.assertEquals(1d, results.get(0).getSamples().get(0).getValue());
-	}
-
-	@Test
 	void testCustomMetric() throws Exception {
 		Measurement m1 = new Measurement(() -> 23d, Statistic.VALUE);
 		Measurement m2 = new Measurement(() -> 13d, Statistic.VALUE);
@@ -228,6 +228,19 @@ abstract class BaseRegistryTests {
 		registry.write(meter);
 		Assertions.assertEquals(2, connection.sync()
 				.tsMrange(TimeRange.unbounded(), MRangeOptions.<String, String>filters("mytag=value").build()).size());
+	}
+
+	@Test
+	void testLabels() throws Exception {
+		String id = "testlabels.meter";
+		Tag tag1 = Tag.of("tag1", "value");
+		Tag tag2 = Tag.of("tag2", "value");
+		registry.timer(id, Arrays.asList(tag1, tag2)).record(Duration.ofMillis(3));
+		registry.write(registry.get(id).timer());
+		List<GetResult<String, String>> results = connection.sync().tsMgetWithLabels("tag2=value");
+		Assertions.assertEquals(4, results.size());
+		Assertions.assertEquals(4, results.get(0).getLabels().size());
+		Assertions.assertTrue(results.get(0).getLabels().contains(Label.of(tag1.getKey(), tag2.getValue())));
 	}
 
 }
