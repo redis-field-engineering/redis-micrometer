@@ -3,7 +3,7 @@
 :project-owner:   redis-developer
 :project-name:    micrometer-redistimeseries
 :project-group:   com.redis
-:project-version: 0.3.4
+:project-version: 0.4.0
 :project-url:     https://github.com/{project-owner}/{project-name}
 :product-name:    Micrometer RedisTimeSeries
 :artifact-id:     micrometer-registry-redistimeseries
