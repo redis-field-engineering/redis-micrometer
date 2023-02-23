@@ -44,17 +44,15 @@ dependencies {
 [source,java]
 ----
 RedisTimeSeriesConfig config = new RedisTimeSeriesConfig() { // <1>
+  @Override
+  public String get(String key) {
+    return null;
+  }
 
-	@Override
-	public String get(String key) {
-		return null;
-	}
-
-	@Override
-	public String uri() {
-		return "redis://example.redis.cloud:12000";
-	}
-	
+  @Override
+  public String uri() {
+    return "redis://example.redis.cloud:12000";
+  }	
 };
 MeterRegistry registry = new RedisTimeSeriesMeterRegistry(config, Clock.SYSTEM); // <2>
 Timer timer = registry.timer("mytimer"); // <3>
@@ -91,14 +89,6 @@ See https://github.com/lettuce-io/lettuce-core/wiki/Redis-URI-and-connection-det
 * Default value: `false`
 
 Connect to a Redis Cluster.
-
-=== `poolSize`
-
-* Type: `integer`
-* Default value: `8`
-
-Maximum number of connections that can be allocated by the pool at a given time.
-Use a negative value for no limit.
 
 === `keyspace`
 
