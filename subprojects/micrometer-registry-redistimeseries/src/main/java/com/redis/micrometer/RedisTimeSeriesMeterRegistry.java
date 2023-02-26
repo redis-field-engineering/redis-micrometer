@@ -471,7 +471,7 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 	}
 
 	private String prefix(String key) {
-		return config.keyspace() + key;
+		return config.keyPrefix() + key;
 	}
 
 	@Override

@@ -34,8 +34,8 @@ public interface RedisTimeSeriesConfig extends StepRegistryConfig {
 	 * @return prefix for RedisTimeSeries keys created by the registry, for example
 	 *         "metrics:" (default: none).
 	 */
-	default String keyspace() {
-		return PropertyValidator.getString(this, "keyspace").orElse("");
+	default String keyPrefix() {
+		return PropertyValidator.getString(this, "keyPrefix").orElse("");
 	}
 
 	default String keySeparator() {
