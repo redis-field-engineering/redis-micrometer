@@ -14,6 +14,8 @@ public interface RedisTimeSeriesConfig extends StepRegistryConfig {
 
 	RedisTimeSeriesConfig DEFAULT = k -> null;
 
+	String DEFAULT_KEY_SEPARATOR = ":";
+
 	@Override
 	default String prefix() {
 		return DEFAULT_PREFIX;
@@ -27,8 +29,17 @@ public interface RedisTimeSeriesConfig extends StepRegistryConfig {
 		return PropertyValidator.getBoolean(this, "cluster").orElse(false);
 	}
 
+	/**
+	 * 
+	 * @return prefix for RedisTimeSeries keys created by the registry, for example
+	 *         "metrics:" (default: none).
+	 */
 	default String keyspace() {
-		return PropertyValidator.getString(this, "keyspace").orElse(null);
+		return PropertyValidator.getString(this, "keyspace").orElse("");
+	}
+
+	default String keySeparator() {
+		return PropertyValidator.getString(this, "keySeparator").orElse(DEFAULT_KEY_SEPARATOR);
 	}
 
 }

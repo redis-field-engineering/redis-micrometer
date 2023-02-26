@@ -110,7 +110,7 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		this.connection = RedisModulesUtils.connection(client);
 		this.connection.setAutoFlushCommands(false);
 		this.commands = connection.async();
-		config().namingConvention(new RedisTimeSeriesNamingConvention());
+		config().namingConvention(new RedisTimeSeriesNamingConvention(config.keySeparator()));
 		start(threadFactory);
 	}
 
@@ -471,10 +471,7 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 	}
 
 	private String prefix(String key) {
-		if (config.keyspace() == null) {
-			return key;
-		}
-		return config.keyspace() + RedisTimeSeriesNamingConvention.KEY_SEPARATOR + key;
+		return config.keyspace() + key;
 	}
 
 	@Override
@@ -482,8 +479,8 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		StringBuilder hierarchicalName = new StringBuilder();
 		hierarchicalName.append(super.getConventionName(id));
 		for (Tag tag : getConventionTags(id)) {
-			hierarchicalName.append(RedisTimeSeriesNamingConvention.KEY_SEPARATOR).append(tag.getKey())
-					.append(RedisTimeSeriesNamingConvention.KEY_SEPARATOR).append(tag.getValue());
+			hierarchicalName.append(config.keySeparator()).append(tag.getKey()).append(config.keySeparator())
+					.append(tag.getValue());
 		}
 		return hierarchicalName.toString();
 

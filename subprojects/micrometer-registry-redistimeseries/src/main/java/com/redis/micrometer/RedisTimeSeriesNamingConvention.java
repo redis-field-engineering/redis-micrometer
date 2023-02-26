@@ -17,7 +17,11 @@ import io.micrometer.core.instrument.config.NamingConvention;
  */
 public class RedisTimeSeriesNamingConvention implements NamingConvention {
 
-	public static final CharSequence KEY_SEPARATOR = ":";
+	private final String keySeparator;
+
+	public RedisTimeSeriesNamingConvention(String keySeparator) {
+		this.keySeparator = keySeparator;
+	}
 
 	@Override
 	public String name(String name, Meter.Type type, String baseUnit) {
@@ -30,7 +34,7 @@ public class RedisTimeSeriesNamingConvention implements NamingConvention {
 	}
 
 	private String toColonDelimited(String value) {
-		return Arrays.stream(value.split("\\.")).filter(Objects::nonNull).collect(Collectors.joining(KEY_SEPARATOR));
+		return Arrays.stream(value.split("\\.")).filter(Objects::nonNull).collect(Collectors.joining(keySeparator));
 	}
 
 }
