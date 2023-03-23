@@ -10,7 +10,7 @@ import com.redis.testcontainers.RedisEnterpriseContainer;
 import com.redis.testcontainers.RedisServer;
 
 @EnabledOnOs(OS.LINUX)
-class RedisEnterpriseRegistryTests extends BaseRegistryTests {
+class RedisEnterpriseRegistryTests extends AbstractRegistryTests {
 
 	private static final RedisEnterpriseContainer REDIS_ENTERPRISE = new RedisEnterpriseContainer(
 			RedisEnterpriseContainer.DEFAULT_IMAGE_NAME.withTag("latest"))

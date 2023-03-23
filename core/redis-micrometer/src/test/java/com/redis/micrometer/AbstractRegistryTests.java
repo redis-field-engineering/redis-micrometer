@@ -43,7 +43,7 @@ import io.micrometer.core.instrument.Tags;
 
 @Testcontainers
 @TestInstance(Lifecycle.PER_CLASS)
-abstract class BaseRegistryTests {
+abstract class AbstractRegistryTests {
 
 	private AbstractRedisClient client;
 	protected StatefulRedisModulesConnection<String, String> connection;
