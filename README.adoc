@@ -1,6 +1,6 @@
 = Redis Micrometer Registry
 :linkattrs:
-:project-owner:   redis-developer
+:project-owner:   redis-field-engineering
 :project-name:    redis-micrometer
 :project-group:   com.redis
 :project-version: 0.4.1
@@ -8,7 +8,7 @@
 :product-name:    Redis Micrometer Registry
 :artifact-id:     redis-micrometer-registry
 
-image:https://github.com/{project-owner}/{project-name}/actions/workflows/early-access.yml/badge.svg["Build Status", link="https://github.com/{project-owner}/{project-name}/actions/workflows/early-access.yml"]
+image:{project-url}/actions/workflows/early-access.yml/badge.svg["Build Status", link="{project-url}/actions/workflows/early-access.yml"]
 image:https://img.shields.io/maven-central/v/{project-group}/{artifact-id}[Download, link="https://search.maven.org/#search|ga|1|{artifact-id}"]
 image:https://img.shields.io/nexus/s/{project-group}/{artifact-id}?server=https%3A%2F%2Fs01.oss.sonatype.org[Snapshot,link="https://s01.oss.sonatype.org/#nexus-search;quick~{artifact-id}"]
 image:https://codecov.io/gh/{project-owner}/{project-name}/branch/master/graph/badge.svg["Coverage", link="https://codecov.io/gh/{project-owner}/{project-name}"]
