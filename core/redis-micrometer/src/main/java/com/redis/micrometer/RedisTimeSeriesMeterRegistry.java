@@ -79,29 +79,29 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 
 	private final Logger log = Logger.getLogger(RedisTimeSeriesMeterRegistry.class.getName());
 
-	private final RedisTimeSeriesConfig config;
+	private final RedisConfig config;
 	private final boolean shutdownClient;
 	private final AbstractRedisClient client;
 	private final StatefulRedisModulesConnection<String, String> connection;
 	private final RedisModulesAsyncCommands<String, String> commands;
 	private final List<RedisFuture<?>> futures = new ArrayList<>();
 
-	public RedisTimeSeriesMeterRegistry(RedisTimeSeriesConfig config, Clock clock) {
+	public RedisTimeSeriesMeterRegistry(RedisConfig config, Clock clock) {
 		this(config, clock, client(config), true, DEFAULT_THREAD_FACTORY);
 	}
 
-	private static AbstractRedisClient client(RedisTimeSeriesConfig config) {
+	private static AbstractRedisClient client(RedisConfig config) {
 		if (config.cluster()) {
 			return RedisModulesClusterClient.create(config.uri());
 		}
 		return RedisModulesClient.create(config.uri());
 	}
 
-	public RedisTimeSeriesMeterRegistry(RedisTimeSeriesConfig config, Clock clock, AbstractRedisClient client) {
+	public RedisTimeSeriesMeterRegistry(RedisConfig config, Clock clock, AbstractRedisClient client) {
 		this(config, clock, client, false, DEFAULT_THREAD_FACTORY);
 	}
 
-	private RedisTimeSeriesMeterRegistry(RedisTimeSeriesConfig config, Clock clock, AbstractRedisClient client,
+	private RedisTimeSeriesMeterRegistry(RedisConfig config, Clock clock, AbstractRedisClient client,
 			boolean shutdownClient, ThreadFactory threadFactory) {
 		super(config, clock);
 		this.config = config;
@@ -110,7 +110,7 @@ public class RedisTimeSeriesMeterRegistry extends StepMeterRegistry {
 		this.connection = RedisModulesUtils.connection(client);
 		this.connection.setAutoFlushCommands(false);
 		this.commands = connection.async();
-		config().namingConvention(new RedisTimeSeriesNamingConvention(config.keySeparator()));
+		config().namingConvention(new RedisNamingConvention(config.keySeparator()));
 		start(threadFactory);
 	}
 

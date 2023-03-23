@@ -5,12 +5,12 @@ import com.redis.testcontainers.RedisStackContainer;
 
 class RedisStackRegistryTests extends BaseRegistryTests {
 
-	private static final RedisStackContainer container = new RedisStackContainer(
+	private static final RedisStackContainer REDIS_STACK = new RedisStackContainer(
 			RedisStackContainer.DEFAULT_IMAGE_NAME.withTag(RedisStackContainer.DEFAULT_TAG));
 
 	@Override
 	protected RedisServer getRedisServer() {
-		return container;
+		return REDIS_STACK;
 	}
 
 }

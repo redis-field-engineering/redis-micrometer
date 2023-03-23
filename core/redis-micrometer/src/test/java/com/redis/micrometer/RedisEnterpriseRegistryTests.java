@@ -12,14 +12,14 @@ import com.redis.testcontainers.RedisServer;
 @EnabledOnOs(OS.LINUX)
 class RedisEnterpriseRegistryTests extends BaseRegistryTests {
 
-	private final RedisEnterpriseContainer container = new RedisEnterpriseContainer(
+	private static final RedisEnterpriseContainer REDIS_ENTERPRISE = new RedisEnterpriseContainer(
 			RedisEnterpriseContainer.DEFAULT_IMAGE_NAME.withTag("latest"))
 			.withDatabase(Database.name("MicrometerTests").memory(DataSize.ofMegabytes(90)).ossCluster(true)
 					.modules(RedisModule.TIMESERIES).build());
 
 	@Override
 	protected RedisServer getRedisServer() {
-		return container;
+		return REDIS_ENTERPRISE;
 	}
 
 }

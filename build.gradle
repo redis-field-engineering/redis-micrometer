@@ -1,8 +1,9 @@
 config {
     info {
-        description = 'Micrometer registry for RedisTimeSeries'
+        description = 'redis-micrometer'
         inceptionYear = '2022'
-        tags = ['micrometer', 'redis', 'timeseries']
+        vendor = 'Redis'
+        tags = ['micrometer', 'redis']
 
         links {
             website      = "https://github.com/redis-developer/${project.rootProject.name}"
@@ -105,6 +106,10 @@ subprojects {
     jar {
         enabled = true
         archiveClassifier = ''
+    }
+
+    compileJava {
+        options.release = 8
     }
     
     configurations {

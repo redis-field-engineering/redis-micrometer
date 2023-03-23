@@ -1,19 +1,19 @@
-= Micrometer RedisTimeSeries
+= Redis Micrometer Registry
 :linkattrs:
 :project-owner:   redis-developer
-:project-name:    micrometer-redistimeseries
+:project-name:    redis-micrometer
 :project-group:   com.redis
 :project-version: 0.4.0
 :project-url:     https://github.com/{project-owner}/{project-name}
-:product-name:    Micrometer RedisTimeSeries
-:artifact-id:     micrometer-registry-redistimeseries
+:product-name:    Redis Micrometer Registry
+:artifact-id:     redis-micrometer-registry
 
 image:https://github.com/{project-owner}/{project-name}/actions/workflows/early-access.yml/badge.svg["Build Status", link="https://github.com/{project-owner}/{project-name}/actions/workflows/early-access.yml"]
 image:https://img.shields.io/maven-central/v/{project-group}/{artifact-id}[Download, link="https://search.maven.org/#search|ga|1|{artifact-id}"]
 image:https://img.shields.io/nexus/s/{project-group}/{artifact-id}?server=https%3A%2F%2Fs01.oss.sonatype.org[Snapshot,link="https://s01.oss.sonatype.org/#nexus-search;quick~{artifact-id}"]
 image:https://codecov.io/gh/{project-owner}/{project-name}/branch/master/graph/badge.svg["Coverage", link="https://codecov.io/gh/{project-owner}/{project-name}"]
 
-{product-name} is a https://micrometer.io[Micrometer] registry for sending metrics to https://redis.io/docs/stack/timeseries/[RedisTimeSeries].
+{product-name} is a https://micrometer.io[Micrometer] registry for sending metrics to https://redis.io[Redis].
 
 This registry can be used in any application that uses Micrometer for recording metrics.
 
@@ -43,7 +43,7 @@ dependencies {
 
 [source,java]
 ----
-RedisTimeSeriesConfig config = new RedisTimeSeriesConfig() { // <1>
+RedisConfig config = new RedisConfig() { // <1>
   @Override
   public String get(String key) {
     return null;
@@ -54,7 +54,7 @@ RedisTimeSeriesConfig config = new RedisTimeSeriesConfig() { // <1>
     return "redis://example.redis.cloud:12000";
   }	
 };
-MeterRegistry registry = new RedisTimeSeriesMeterRegistry(config, Clock.SYSTEM); // <2>
+MeterRegistry registry = new RedisMeterRegistry(config, Clock.SYSTEM); // <2>
 Timer timer = registry.timer("mytimer"); // <3>
 timer.record(() -> doSomeWork()); // <4>
 ----

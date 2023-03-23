@@ -1,9 +1,9 @@
 project:
-  name: micrometer-redistimeseries
-  description: Micrometer registry for RedisTimeSeries
-  longDescription: Micrometer registry for RedisTimeSeries
+  name: redis-micrometer
+  description: Micrometer registry for Redis
+  longDescription: Micrometer registry for Redis
   links:
-    homepage: https://github.com/redis-developer/micrometer-redistimeseries
+    homepage: https://github.com/redis-field-engineering/redis-micrometer
   authors:
     - Julien Ruaux
   license: Apache-2.0
@@ -15,7 +15,6 @@ project:
   tags:
     - 'micrometer'
     - 'redis'
-    - 'timeseries'
 
 release:
   github:
@@ -67,7 +66,7 @@ announce:
   slack:
     active: RELEASE
     channel: '#field-engineering-announcements'
-    message: '📊 Micrometer RedisTimeSeries {{projectVersion}} has been released! {{releaseNotesUrl}}'
+    message: '📊 Redis Micrometer {{projectVersion}} has been released! {{releaseNotesUrl}}'
 
 files:
   artifacts:

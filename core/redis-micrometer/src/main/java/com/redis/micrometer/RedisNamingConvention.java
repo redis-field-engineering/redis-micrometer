@@ -8,18 +8,17 @@ import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.config.NamingConvention;
 
 /**
- * {@link NamingConvention} for RedisTimeSeries.
+ * {@link NamingConvention} for Redis.
  *
- * Names are mapped to RedisTimeSeries keys and tag keys are mapped to its
- * labels.
+ * Names and tags are mapped to Redis keys.
  *
  * @author Julien Ruaux
  */
-public class RedisTimeSeriesNamingConvention implements NamingConvention {
+public class RedisNamingConvention implements NamingConvention {
 
 	private final String keySeparator;
 
-	public RedisTimeSeriesNamingConvention(String keySeparator) {
+	public RedisNamingConvention(String keySeparator) {
 		this.keySeparator = keySeparator;
 	}
 

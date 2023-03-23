@@ -75,7 +75,7 @@ abstract class BaseRegistryTests {
 	@BeforeEach
 	public void setupRegistry() {
 		connection.sync().flushall();
-		registry = new RedisTimeSeriesMeterRegistry(new RedisTimeSeriesConfig() {
+		registry = new RedisTimeSeriesMeterRegistry(new RedisConfig() {
 
 			@Override
 			public String get(String key) {

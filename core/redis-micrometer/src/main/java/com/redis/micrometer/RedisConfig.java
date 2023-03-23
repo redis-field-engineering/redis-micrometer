@@ -4,15 +4,15 @@ import io.micrometer.core.instrument.config.validate.PropertyValidator;
 import io.micrometer.core.instrument.step.StepRegistryConfig;
 
 /**
- * {@link StepRegistryConfig} for RedisTimeSeries.
+ * {@link StepRegistryConfig} for Redis.
  *
  * @author Julien Ruaux
  */
-public interface RedisTimeSeriesConfig extends StepRegistryConfig {
+public interface RedisConfig extends StepRegistryConfig {
 
 	String DEFAULT_PREFIX = "redis";
 
-	RedisTimeSeriesConfig DEFAULT = k -> null;
+	RedisConfig DEFAULT = k -> null;
 
 	String DEFAULT_KEY_SEPARATOR = ":";
 
@@ -31,8 +31,8 @@ public interface RedisTimeSeriesConfig extends StepRegistryConfig {
 
 	/**
 	 * 
-	 * @return prefix for RedisTimeSeries keys created by the registry, for example
-	 *         "metrics:" (default: none).
+	 * @return prefix for Redis keys created by the registry, for example "metrics:"
+	 *         (default: none).
 	 */
 	default String keyPrefix() {
 		return PropertyValidator.getString(this, "keyPrefix").orElse("");
