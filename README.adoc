@@ -10,7 +10,6 @@
 
 image:{project-url}/actions/workflows/early-access.yml/badge.svg["Build Status", link="{project-url}/actions/workflows/early-access.yml"]
 image:https://img.shields.io/maven-central/v/{project-group}/{artifact-id}[Download, link="https://search.maven.org/#search|ga|1|{artifact-id}"]
-image:https://img.shields.io/nexus/s/{project-group}/{artifact-id}?server=https%3A%2F%2Fs01.oss.sonatype.org[Snapshot,link="https://s01.oss.sonatype.org/#nexus-search;quick~{artifact-id}"]
 image:https://codecov.io/gh/{project-owner}/{project-name}/branch/master/graph/badge.svg["Coverage", link="https://codecov.io/gh/{project-owner}/{project-name}"]
 
 {product-name} is a https://micrometer.io[Micrometer] registry for sending metrics to https://redis.io[Redis].
