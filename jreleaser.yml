@@ -63,9 +63,9 @@ deploy:
 
 announce:
   slack:
-    active: ALWAYS
-    channel: '#field-engineering-announcements-test'
-    message: '📊 Redis Micrometer {{projectVersion}} has been released! <br> {{releaseNotesUrl}} <br> {{changelog}}'
+    active: RELEASE
+    channel: '#field-engineering-announcements'
+    message: '📈 Redis Micrometer {{projectVersion}} has been released!'
 
 files:
   artifacts:
