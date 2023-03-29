@@ -15,7 +15,7 @@ class RedisEnterpriseRegistryTests extends AbstractRegistryTests {
 	private static final RedisEnterpriseContainer REDIS_ENTERPRISE = new RedisEnterpriseContainer(
 			RedisEnterpriseContainer.DEFAULT_IMAGE_NAME.withTag("latest"))
 			.withDatabase(Database.name("MicrometerTests").memory(DataSize.ofMegabytes(90)).ossCluster(true)
-					.modules(RedisModule.TIMESERIES).build());
+					.modules(RedisModule.TIMESERIES, RedisModule.SEARCH).build());
 
 	@Override
 	protected RedisServer getRedisServer() {
