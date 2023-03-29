@@ -11,3 +11,9 @@ dependencies {
 compileJava {
     options.release = 8
 }
+
+eclipse {
+    project {
+        name = 'redis-micrometer-registry'
+    }
+}

@@ -16,10 +16,10 @@ import io.micrometer.core.instrument.config.NamingConvention;
  */
 public class RedisNamingConvention implements NamingConvention {
 
-	private final String keySeparator;
+	private final String separator;
 
-	public RedisNamingConvention(String keySeparator) {
-		this.keySeparator = keySeparator;
+	public RedisNamingConvention(String separator) {
+		this.separator = separator;
 	}
 
 	@Override
@@ -33,7 +33,7 @@ public class RedisNamingConvention implements NamingConvention {
 	}
 
 	private String toColonDelimited(String value) {
-		return Arrays.stream(value.split("\\.")).filter(Objects::nonNull).collect(Collectors.joining(keySeparator));
+		return Arrays.stream(value.split("\\.")).filter(Objects::nonNull).collect(Collectors.joining(separator));
 	}
 
 }

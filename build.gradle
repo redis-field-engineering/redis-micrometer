@@ -1,6 +1,6 @@
 config {
     info {
-        description = 'redis-micrometer'
+        description = 'micrometer-registry-redis'
         inceptionYear = '2022'
         vendor = 'Redis'
         tags = ['micrometer', 'redis']

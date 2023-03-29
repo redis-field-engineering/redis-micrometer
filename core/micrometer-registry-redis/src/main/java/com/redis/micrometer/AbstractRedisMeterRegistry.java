@@ -1,15 +1,24 @@
 package com.redis.micrometer;
 
+import static io.micrometer.core.instrument.distribution.FixedBoundaryVictoriaMetricsHistogram.getRangeTagValue;
+
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
+import java.util.Map;
+import java.util.NavigableSet;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
+import java.util.function.ToDoubleFunction;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
+import java.util.stream.DoubleStream;
+import java.util.stream.Stream;
 
 import com.redis.lettucemod.RedisModulesClient;
 import com.redis.lettucemod.api.StatefulRedisModulesConnection;
@@ -27,13 +36,21 @@ import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.FunctionTimer;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.LongTaskTimer;
+import io.micrometer.core.instrument.Measurement;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Meter.Id;
 import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.TimeGauge;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.distribution.CountAtBucket;
+import io.micrometer.core.instrument.distribution.DistributionStatisticConfig;
+import io.micrometer.core.instrument.distribution.HistogramSnapshot;
+import io.micrometer.core.instrument.distribution.ValueAtPercentile;
+import io.micrometer.core.instrument.distribution.pause.PauseDetector;
 import io.micrometer.core.instrument.step.StepMeterRegistry;
+import io.micrometer.core.instrument.step.StepTimer;
 import io.micrometer.core.instrument.util.MeterPartition;
+import io.micrometer.core.instrument.util.TimeUtils;
 
 /**
  * {@link StepMeterRegistry} for Redis.
@@ -78,10 +95,6 @@ abstract class AbstractRedisMeterRegistry extends StepMeterRegistry {
 		return RedisModulesClient.create(config.uri());
 	}
 
-	protected RedisModulesAsyncCommands<String, String> async() {
-		return connection.async();
-	}
-
 	@Override
 	public void stop() {
 		connection.close();
@@ -92,8 +105,8 @@ abstract class AbstractRedisMeterRegistry extends StepMeterRegistry {
 		super.stop();
 	}
 
-	protected boolean addFuture(RedisFuture<?> future) {
-		return futures.add(future);
+	protected boolean addFuture(Function<RedisModulesAsyncCommands<String, String>, RedisFuture<?>> execution) {
+		return futures.add(execution.apply(connection.async()));
 	}
 
 	@Override
@@ -152,7 +165,7 @@ abstract class AbstractRedisMeterRegistry extends StepMeterRegistry {
 						nanos -= now - time;
 						time = now;
 					}
-				} catch (ExecutionException e) {
+				} catch (Exception e) {
 					handleExecutionException(e);
 				}
 			}
@@ -166,17 +179,64 @@ abstract class AbstractRedisMeterRegistry extends StepMeterRegistry {
 		}
 	}
 
-	protected void handleExecutionException(ExecutionException e) throws ExecutionException {
+	protected void handleExecutionException(Exception e) throws Exception {
 		throw e;
 	}
 
-	protected abstract void writeFunctionCounter(FunctionCounter counter);
+	protected Stream<Id> idsForHistograms(Id id, DistributionStatisticConfig distributionStatisticConfig) {
+		TimeUnit timeUnit = getBaseTimeUnit();
+		NavigableSet<Double> buckets = distributionStatisticConfig.getHistogramBuckets(false);
+		return buckets.stream().map(b -> vmrange(id, b, timeUnit));
+	}
 
-	protected abstract void writeCounter(Counter counter);
+	protected Id vmrange(Id id, double bucket, TimeUnit timeUnit) {
+		String value = getRangeTagValue(timeUnit == null ? bucket : TimeUtils.nanosToUnit(bucket, timeUnit));
+		return id.withTag(Tag.of("vmrange", value));
+	}
 
-	protected abstract void writeGauge(Gauge gauge);
+	protected Stream<Id> idsForPercentiles(Id id, DistributionStatisticConfig distributionStatisticConfig) {
+		double[] percentiles = distributionStatisticConfig.getPercentiles();
+		if (percentiles == null) {
+			return Stream.empty();
+		}
+		return DoubleStream.of(percentiles).mapToObj(percentile -> quantile(id, percentile));
+	}
 
-	protected abstract void writeTimeGauge(TimeGauge timeGauge);
+	protected Id quantile(Id id, double percentile) {
+		return id.withTag(Tag.of("quantile", String.valueOf(percentile)));
+	}
+
+	@Override
+	protected Timer newTimer(Id id, DistributionStatisticConfig distributionStatisticConfig,
+			PauseDetector pauseDetector) {
+		return new StepTimer(id, clock, distributionStatisticConfig, pauseDetector, getBaseTimeUnit(),
+				this.config.step().toMillis(), true);
+	}
+
+	public void writeFunctionCounter(FunctionCounter counter) {
+		double count = counter.count();
+		if (Double.isFinite(count)) {
+			write(counter, count);
+		}
+	}
+
+	public void writeCounter(Counter counter) {
+		write(counter, counter.count());
+	}
+
+	public void writeGauge(Gauge gauge) {
+		double value = gauge.value();
+		if (Double.isFinite(value)) {
+			write(gauge, value);
+		}
+	}
+
+	public void writeTimeGauge(TimeGauge timeGauge) {
+		double value = timeGauge.value(getBaseTimeUnit());
+		if (Double.isFinite(value)) {
+			write(timeGauge, value);
+		}
+	}
 
 	protected abstract void writeLongTaskTimer(LongTaskTimer timer);
 
@@ -188,35 +248,89 @@ abstract class AbstractRedisMeterRegistry extends StepMeterRegistry {
 
 	protected abstract void writeTimer(Timer timer);
 
+	protected abstract void write(Meter meter, double amount);
+
 	@Override
 	protected TimeUnit getBaseTimeUnit() {
 		return TimeUnit.MILLISECONDS;
 	}
 
 	protected String key(Id id) {
-		return prefix(getConventionName(id));
+		return prefix(getFilteredConventionName(id));
+	}
+
+	private String getFilteredConventionName(Id id) {
+		return getConventionName(id, getFilteredConventionTags(id));
+	}
+
+	private String getConventionName(Id id, Iterable<Tag> tags) {
+		StringBuilder name = new StringBuilder();
+		name.append(super.getConventionName(id));
+		for (Tag tag : tags) {
+			name.append(config.keySeparator()).append(tag.getKey()).append(config.keySeparator())
+					.append(tag.getValue());
+		}
+		return name.toString();
+	}
+
+	private Iterable<Tag> getFilteredConventionTags(Id id) {
+		return getConventionTags(id).stream().filter(t -> !config.ignoreKeyTags().contains(t.getKey()))
+				.collect(Collectors.toList());
 	}
 
 	protected String key(Id id, String suffix) {
 		// usually tagKeys and metricNames naming rules are the same
 		// but we can't call getConventionName again after adding suffix
-		return prefix(config().namingConvention().tagKey(getConventionName(id) + "." + suffix));
+		return prefix(config().namingConvention().tagKey(getFilteredConventionName(id) + "." + suffix));
 	}
 
-	private String prefix(String key) {
-		return config.keyPrefix() + key;
+	protected String prefix(String key) {
+		if (config.keyspace() == null) {
+			return key;
+		}
+		return config.keyspace() + config.keySeparator() + key;
 	}
 
 	@Override
 	protected String getConventionName(Id id) {
-		StringBuilder hierarchicalName = new StringBuilder();
-		hierarchicalName.append(super.getConventionName(id));
-		for (Tag tag : getConventionTags(id)) {
-			hierarchicalName.append(config.keySeparator()).append(tag.getKey()).append(config.keySeparator())
-					.append(tag.getValue());
-		}
-		return hierarchicalName.toString();
+		return getConventionName(id, getConventionTags(id));
+	}
 
+	protected Map<Id, Double> percentileValues(Meter meter, HistogramSnapshot histogram) {
+		Map<Id, Double> map = new HashMap<>();
+		ToDoubleFunction<ValueAtPercentile> doubleFunction = percentileToDoubleFunction(meter);
+		for (ValueAtPercentile value : histogram.percentileValues()) {
+			map.put(quantile(meter.getId(), value.percentile()), doubleFunction.applyAsDouble(value));
+		}
+		return map;
+	}
+
+	private ToDoubleFunction<ValueAtPercentile> percentileToDoubleFunction(Meter meter) {
+		if (meter instanceof Timer) {
+			return v -> v.value(getBaseTimeUnit());
+		}
+		return ValueAtPercentile::value;
+	}
+
+	protected Map<Id, Double> histogramCounts(Meter meter, HistogramSnapshot histogram) {
+		Map<Id, Double> map = new HashMap<>();
+		TimeUnit timeUnit = getBaseTimeUnit();
+		for (CountAtBucket c : histogram.histogramCounts()) {
+			map.put(vmrange(meter.getId(), c.bucket(), timeUnit), c.count());
+		}
+		return map;
+	}
+
+	protected Map<String, Double> statistics(Meter meter) {
+		Map<String, Double> stats = new HashMap<>();
+		for (Measurement measurement : meter.measure()) {
+			double value = measurement.getValue();
+			if (!Double.isFinite(value)) {
+				continue;
+			}
+			stats.put(measurement.getStatistic().getTagValueRepresentation(), value);
+		}
+		return stats;
 	}
 
 }

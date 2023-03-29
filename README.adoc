@@ -6,7 +6,7 @@
 :project-version: 0.4.1
 :project-url:     https://github.com/{project-owner}/{project-name}
 :product-name:    Redis Micrometer Registry
-:artifact-id:     redis-micrometer-registry
+:artifact-id:     micrometer-registry-redis
 
 image:{project-url}/actions/workflows/early-access.yml/badge.svg["Build Status", link="{project-url}/actions/workflows/early-access.yml"]
 image:https://img.shields.io/maven-central/v/{project-group}/{artifact-id}[Download, link="https://search.maven.org/#search|ga|1|{artifact-id}"]
