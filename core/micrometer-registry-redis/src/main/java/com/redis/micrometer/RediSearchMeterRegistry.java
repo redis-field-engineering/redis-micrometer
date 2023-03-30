@@ -73,11 +73,6 @@ public class RediSearchMeterRegistry extends AbstractRedisMeterRegistry<RediSear
 		excludedKeyTags = excludedKeyTags(config);
 	}
 
-	@Override
-	protected String getConventionName(Tag tag) {
-		return tag.getValue();
-	}
-
 	private Function<Id, String> indexNamingFunction(RediSearchRegistryConfig config) {
 		NamingConvention namingConvention = new RedisNamingConvention(config.indexSeparator());
 		Function<Id, String> idFunction = id -> id.getConventionName(namingConvention);

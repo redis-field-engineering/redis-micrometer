@@ -66,11 +66,6 @@ public class RedisTimeSeriesMeterRegistry extends AbstractRedisMeterRegistry<Red
 	}
 
 	@Override
-	protected String getConventionName(Tag tag) {
-		return tag.getKey() + config.keySeparator() + tag.getValue();
-	}
-
-	@Override
 	protected void handleExecutionException(Exception e) throws Exception {
 		if (e.getCause() != null && ERROR_KEY_ALREADY_EXISTS.equals(e.getCause().getMessage())) {
 			return;

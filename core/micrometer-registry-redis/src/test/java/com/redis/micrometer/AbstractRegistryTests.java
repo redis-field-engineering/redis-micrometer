@@ -171,7 +171,7 @@ abstract class AbstractRegistryTests {
 			String tagValue = "tagvalue";
 			tsRegistry.timer(id, tagName, tagValue).record(Duration.ofMillis(3));
 			tsRegistry.write(tsRegistry.get(id).tags(tagName, tagValue).timer());
-			List<Sample> samples = connection.sync().tsRange(key(id) + ":" + tagName + ":" + tagValue + ":count",
+			List<Sample> samples = connection.sync().tsRange(key(id) + ":" + tagValue + ":count",
 					TimeRange.unbounded());
 			Assertions.assertEquals(1, samples.size());
 		}
@@ -235,7 +235,7 @@ abstract class AbstractRegistryTests {
 			String id = "writelongtasktimer.timer";
 			LongTaskTimer timer = LongTaskTimer.builder(id).tag("tag", "value").register(tsRegistry);
 			tsRegistry.write(timer);
-			String prefix = id + ".tag.value";
+			String prefix = id + ".value";
 			Set<String> expected = Stream
 					.of(key(prefix + ".active.count"), key(prefix + ".duration.sum"), key(prefix + ".max"))
 					.collect(Collectors.toSet());
@@ -393,11 +393,10 @@ abstract class AbstractRegistryTests {
 		Awaitility.await().timeout(Duration.ofMillis(300))
 				.until(() -> connection.sync().ftSearch(index, "*").size() == 2);
 		List<String> tsKeys = connection.sync().keys("ts:*");
-		Assertions.assertEquals(new HashSet<>(Arrays.asList("ts:query:id:456:max", "ts:query:id:456:quantile:0.9",
-				"ts:query:id:123:sum", "ts:query:id:123:quantile:0.99", "ts:query:id:123:count",
-				"ts:query:id:123:quantile:0.9", "ts:query:id:456:count", "ts:query:id:123:mean", "ts:query:id:123:max",
-				"ts:query:id:456:mean", "ts:query:id:456:sum", "ts:query:id:456:quantile:0.99")),
-				new HashSet<>(tsKeys));
+		Assertions.assertEquals(new HashSet<>(Arrays.asList("ts:query:456:max", "ts:query:456:0.9",
+				"ts:query:123:sum", "ts:query:123:0.99", "ts:query:123:count", "ts:query:123:0.9",
+				"ts:query:456:count", "ts:query:123:mean", "ts:query:123:max", "ts:query:456:mean", "ts:query:456:sum",
+				"ts:query:456:0.99")), new HashSet<>(tsKeys));
 		List<String> searchKeys = connection.sync().keys("hash:*");
 		Assertions.assertEquals(new HashSet<>(Arrays.asList("hash:query:456", "hash:query:123")),
 				new HashSet<>(searchKeys));

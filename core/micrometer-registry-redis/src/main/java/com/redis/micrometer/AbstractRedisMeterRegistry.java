@@ -269,12 +269,10 @@ abstract class AbstractRedisMeterRegistry<C extends RedisRegistryConfig> extends
 		StringBuilder name = new StringBuilder();
 		name.append(super.getConventionName(id));
 		for (Tag tag : tags) {
-			name.append(config.keySeparator()).append(getConventionName(tag));
+			name.append(config.keySeparator()).append(tag.getValue());
 		}
 		return name.toString();
 	}
-
-	protected abstract String getConventionName(Tag tag);
 
 	protected String key(Id id, String suffix) {
 		// usually tagKeys and metricNames naming rules are the same
