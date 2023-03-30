@@ -1,8 +1,5 @@
 package com.redis.micrometer;
 
-import java.util.Collections;
-import java.util.Set;
-
 import io.micrometer.core.instrument.config.validate.PropertyValidator;
 import io.micrometer.core.instrument.step.StepRegistryConfig;
 
@@ -11,15 +8,13 @@ import io.micrometer.core.instrument.step.StepRegistryConfig;
  *
  * @author Julien Ruaux
  */
-public interface RedisConfig extends StepRegistryConfig {
+public interface RedisRegistryConfig extends StepRegistryConfig {
+
+	RedisRegistryConfig DEFAULT = k -> null;
 
 	String DEFAULT_PREFIX = "redis";
 
-	RedisConfig DEFAULT = k -> null;
-
 	String DEFAULT_KEY_SEPARATOR = ":";
-
-	Set<String> EMPTY_EXCLUDED_TAGS = Collections.emptySet();
 
 	@Override
 	default String prefix() {
@@ -45,14 +40,6 @@ public interface RedisConfig extends StepRegistryConfig {
 
 	default String keySeparator() {
 		return PropertyValidator.getString(this, "keySeparator").orElse(DEFAULT_KEY_SEPARATOR);
-	}
-
-	/**
-	 * 
-	 * @return tag names to exclude from key building
-	 */
-	default Set<String> ignoreKeyTags() {
-		return EMPTY_EXCLUDED_TAGS;
 	}
 
 }

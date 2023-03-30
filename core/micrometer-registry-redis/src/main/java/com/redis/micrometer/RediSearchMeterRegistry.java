@@ -4,8 +4,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.function.ToDoubleFunction;
 import java.util.function.ToLongFunction;
 import java.util.stream.Collectors;
@@ -25,6 +27,7 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.LongTaskTimer;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Meter.Id;
+import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.TimeGauge;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.config.NamingConvention;
@@ -39,13 +42,10 @@ import io.micrometer.core.instrument.util.NamedThreadFactory;
  *
  * @author Julien Ruaux
  */
-public class RediSearchMeterRegistry extends AbstractRedisMeterRegistry {
+public class RediSearchMeterRegistry extends AbstractRedisMeterRegistry<RediSearchRegistryConfig> {
 
 	private static final ThreadFactory DEFAULT_THREAD_FACTORY = new NamedThreadFactory("redisearch-metrics-publisher");
-	private static final String INDEX_NAME_SEPARATOR = "-";
-	private static final String INDEX_NAME_SUFFIX = INDEX_NAME_SEPARATOR + "idx";
-	private static final NamingConvention INDEX_NAMING_CONVENTION = new RedisNamingConvention(INDEX_NAME_SEPARATOR);
-	private static final NamingConvention FIELD_NAMING_CONVENTION = NamingConvention.dot;
+	private static final NamingConvention FIELD_NAMING_CONVENTION = NamingConvention.camelCase;
 
 	public static final String FIELD_TIME = "time";
 	public static final String FIELD_COUNT = "count";
@@ -58,12 +58,60 @@ public class RediSearchMeterRegistry extends AbstractRedisMeterRegistry {
 
 	private static final String ERROR_INDEX_ALREADY_EXISTS = "Index already exists";
 
-	public RediSearchMeterRegistry(RedisConfig config, Clock clock) {
+	private final Function<Id, String> indexNamingFunction;
+	private final Set<String> excludedKeyTags;
+
+	public RediSearchMeterRegistry(RediSearchRegistryConfig config, Clock clock) {
 		super(config, clock, DEFAULT_THREAD_FACTORY);
+		indexNamingFunction = indexNamingFunction(config);
+		excludedKeyTags = excludedKeyTags(config);
 	}
 
-	public RediSearchMeterRegistry(RedisConfig config, Clock clock, AbstractRedisClient client) {
+	public RediSearchMeterRegistry(RediSearchRegistryConfig config, Clock clock, AbstractRedisClient client) {
 		super(config, clock, client, DEFAULT_THREAD_FACTORY);
+		indexNamingFunction = indexNamingFunction(config);
+		excludedKeyTags = excludedKeyTags(config);
+	}
+
+	@Override
+	protected String getConventionName(Tag tag) {
+		return tag.getValue();
+	}
+
+	private Function<Id, String> indexNamingFunction(RediSearchRegistryConfig config) {
+		NamingConvention namingConvention = new RedisNamingConvention(config.indexSeparator());
+		Function<Id, String> idFunction = id -> id.getConventionName(namingConvention);
+		if (config.indexPrefix() == null) {
+			if (config.indexSuffix() == null) {
+				return idFunction;
+			}
+			String suffix = suffix(config);
+			return id -> idFunction.apply(id) + suffix;
+		}
+		String prefix = config.indexPrefix() + config.indexSeparator();
+		if (config.indexSuffix() == null) {
+			return id -> prefix + idFunction.apply(id);
+		}
+		String suffix = suffix(config);
+		return id -> prefix + idFunction.apply(id) + suffix;
+	}
+
+	private String suffix(RediSearchRegistryConfig config) {
+		return config.indexSeparator() + config.indexSuffix();
+	}
+
+	private Set<String> excludedKeyTags(RediSearchRegistryConfig config) {
+		return Stream.of(config.nonKeyTags()).collect(Collectors.toSet());
+	}
+
+	@Override
+	protected String getConventionName(Id id) {
+		if (config.nonKeyTags().length == 0) {
+			return super.getConventionName(id);
+		}
+		List<Tag> tags = getConventionTags(id).stream().filter(t -> !excludedKeyTags.contains(t.getKey()))
+				.collect(Collectors.toList());
+		return getConventionName(id, tags);
 	}
 
 	@Override
@@ -75,7 +123,7 @@ public class RediSearchMeterRegistry extends AbstractRedisMeterRegistry {
 	}
 
 	private String index(Id id) {
-		return id.getConventionName(INDEX_NAMING_CONVENTION) + INDEX_NAME_SUFFIX;
+		return indexNamingFunction.apply(id);
 	}
 
 	@Override
@@ -89,7 +137,7 @@ public class RediSearchMeterRegistry extends AbstractRedisMeterRegistry {
 			double scale) {
 		List<String> fields = new ArrayList<>();
 		fields.addAll(Arrays.asList(FIELD_COUNT, FIELD_SUM, FIELD_MAX, FIELD_MEAN));
-		fields.addAll(toFieldNames(idsForPercentiles(id, distributionStatisticConfig)));
+		fields.addAll(toFieldNames(percentileTags(distributionStatisticConfig)));
 		createMeter(id, fields);
 		return super.newDistributionSummary(id, distributionStatisticConfig, scale);
 	}
@@ -124,8 +172,7 @@ public class RediSearchMeterRegistry extends AbstractRedisMeterRegistry {
 			PauseDetector pauseDetector) {
 		List<String> fields = new ArrayList<>();
 		fields.addAll(Arrays.asList(FIELD_COUNT, FIELD_SUM, FIELD_MEAN, FIELD_MAX));
-		fields.addAll(toFieldNames(idsForPercentiles(id, distributionStatisticConfig)));
-		fields.addAll(toFieldNames(idsForHistograms(id, distributionStatisticConfig)));
+		fields.addAll(fieldNames(distributionStatisticConfig));
 		createMeter(id, fields);
 		return super.newTimer(id, distributionStatisticConfig, pauseDetector);
 	}
@@ -134,14 +181,20 @@ public class RediSearchMeterRegistry extends AbstractRedisMeterRegistry {
 	protected LongTaskTimer newLongTaskTimer(Id id, DistributionStatisticConfig distributionStatisticConfig) {
 		List<String> fields = new ArrayList<>();
 		fields.addAll(Arrays.asList(FIELD_ACTIVE_COUNT, FIELD_DURATION_SUM, FIELD_MAX));
-		fields.addAll(toFieldNames(idsForPercentiles(id, distributionStatisticConfig)));
-		fields.addAll(toFieldNames(idsForHistograms(id, distributionStatisticConfig)));
+		fields.addAll(fieldNames(distributionStatisticConfig));
 		createMeter(id, fields);
 		return super.newLongTaskTimer(id, distributionStatisticConfig);
 	}
 
-	private List<String> toFieldNames(Stream<Id> ids) {
-		return ids.map(id -> id.getConventionName(FIELD_NAMING_CONVENTION)).collect(Collectors.toList());
+	private List<String> fieldNames(DistributionStatisticConfig distributionStatisticConfig) {
+		Stream<Tag> percentileTags = percentileTags(distributionStatisticConfig);
+		Stream<Tag> histogramTags = histogramTags(distributionStatisticConfig);
+		return toFieldNames(Stream.concat(percentileTags, histogramTags));
+	}
+
+	private List<String> toFieldNames(Stream<Tag> tags) {
+		return tags.map(t -> FIELD_NAMING_CONVENTION.tagKey(t.getKey() + "." + t.getValue()))
+				.collect(Collectors.toList());
 	}
 
 	private void createMeter(Id id, String... fields) {

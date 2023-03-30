@@ -39,7 +39,7 @@ import io.micrometer.core.instrument.util.NamedThreadFactory;
  *
  * @author Julien Ruaux
  */
-public class RedisTimeSeriesMeterRegistry extends AbstractRedisMeterRegistry {
+public class RedisTimeSeriesMeterRegistry extends AbstractRedisMeterRegistry<RedisRegistryConfig> {
 
 	private static final ThreadFactory DEFAULT_THREAD_FACTORY = new NamedThreadFactory(
 			"redistimeseries-metrics-publisher");
@@ -57,12 +57,17 @@ public class RedisTimeSeriesMeterRegistry extends AbstractRedisMeterRegistry {
 	private static final String TAG_STAT = "stat";
 	private static final String TAG_NAME = "name";
 
-	public RedisTimeSeriesMeterRegistry(RedisConfig config, Clock clock) {
+	public RedisTimeSeriesMeterRegistry(RedisRegistryConfig config, Clock clock) {
 		super(config, clock, DEFAULT_THREAD_FACTORY);
 	}
 
-	public RedisTimeSeriesMeterRegistry(RedisConfig config, Clock clock, AbstractRedisClient client) {
+	public RedisTimeSeriesMeterRegistry(RedisRegistryConfig config, Clock clock, AbstractRedisClient client) {
 		super(config, clock, client, DEFAULT_THREAD_FACTORY);
+	}
+
+	@Override
+	protected String getConventionName(Tag tag) {
+		return tag.getKey() + config.keySeparator() + tag.getValue();
 	}
 
 	@Override
@@ -158,11 +163,15 @@ public class RedisTimeSeriesMeterRegistry extends AbstractRedisMeterRegistry {
 	}
 
 	private void createMetersForHistograms(Id id, DistributionStatisticConfig distributionStatisticConfig) {
-		idsForHistograms(id, distributionStatisticConfig).forEach(i -> createMeter(i, DuplicatePolicy.LAST));
+		histogramTags(distributionStatisticConfig).forEach(t -> createMeter(id.withTag(t), DuplicatePolicy.LAST));
 	}
 
 	private void createMetersForPercentiles(Id id, DistributionStatisticConfig distributionStatisticConfig) {
-		idsForPercentiles(id, distributionStatisticConfig).forEach(i -> createMeter(i, DuplicatePolicy.LAST));
+		percentileTags(distributionStatisticConfig).forEach(t -> createMeter(id.withTag(t), DuplicatePolicy.LAST));
+	}
+
+	protected Id quantile(Id id, double percentile) {
+		return id.withTag(Tag.of("quantile", String.valueOf(percentile)));
 	}
 
 	@Override

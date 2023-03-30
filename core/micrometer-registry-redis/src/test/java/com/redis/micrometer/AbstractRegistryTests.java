@@ -86,7 +86,7 @@ abstract class AbstractRegistryTests {
 	@BeforeEach
 	public void setupRegistry() {
 		connection.sync().flushall();
-		tsRegistry = new RedisTimeSeriesMeterRegistry(new RedisConfig() {
+		tsRegistry = new RedisTimeSeriesMeterRegistry(new RedisRegistryConfig() {
 
 			@Override
 			public String get(String key) {
@@ -99,7 +99,7 @@ abstract class AbstractRegistryTests {
 			}
 
 		}, Clock.SYSTEM, client);
-		searchRegistry = new RediSearchMeterRegistry(new RedisConfig() {
+		searchRegistry = new RediSearchMeterRegistry(new RediSearchRegistryConfig() {
 
 			@Override
 			public String get(String key) {
@@ -281,7 +281,7 @@ abstract class AbstractRegistryTests {
 			long value1 = 10;
 			searchRegistry.timer(id).record(Duration.ofMillis(value1));
 			searchRegistry.write(searchRegistry.get(id).timer());
-			SearchResults<String, String> results = connection.sync().ftSearch("writetimer-timer-idx", "*");
+			SearchResults<String, String> results = connection.sync().ftSearch("writetimer-timer", "*");
 			Assertions.assertEquals(1, results.size());
 			Document<String, String> result1 = results.get(0);
 			Assertions.assertEquals(5, result1.size());
@@ -295,7 +295,7 @@ abstract class AbstractRegistryTests {
 			Tag tag2 = Tag.of("tag2", "value");
 			searchRegistry.timer(id, Arrays.asList(tag1, tag2)).record(Duration.ofMillis(3));
 			searchRegistry.write(searchRegistry.get(id).timer());
-			SearchResults<String, String> results = connection.sync().ftSearch("testlabels-meter-idx", "@tag2:{value}");
+			SearchResults<String, String> results = connection.sync().ftSearch("testlabels-meter", "@tag2:{value}");
 			Assertions.assertEquals(1, results.size());
 			Assertions.assertTrue(results.get(0).containsKey(tag1.getKey()));
 			Assertions.assertEquals(tag1.getValue(), results.get(0).get(tag1.getKey()));
@@ -313,7 +313,7 @@ abstract class AbstractRegistryTests {
 			timer1.record(Duration.ofSeconds(2));
 			timer2.record(Duration.ofSeconds(3));
 			searchRegistry.write(timer1, timer2);
-			String index = "query-idx";
+			String index = "query";
 			SearchResults<String, String> results = connection.sync().ftSearch(index, "*");
 			Assertions.assertEquals(2, results.size());
 			for (Document<String, String> doc : results) {
@@ -326,9 +326,8 @@ abstract class AbstractRegistryTests {
 
 	@Test
 	void compositeRegistry() {
-		Set<String> EXCLUDED_TAGS = new HashSet<>(Arrays.asList("sql", "table"));
 		Duration step = Duration.ofMillis(100);
-		RedisTimeSeriesMeterRegistry tsRegistry = new RedisTimeSeriesMeterRegistry(new RedisConfig() {
+		RedisTimeSeriesMeterRegistry tsRegistry = new RedisTimeSeriesMeterRegistry(new RedisRegistryConfig() {
 
 			@Override
 			public String keyspace() {
@@ -350,13 +349,10 @@ abstract class AbstractRegistryTests {
 				return step;
 			}
 
-			@Override
-			public Set<String> ignoreKeyTags() {
-				return EXCLUDED_TAGS;
-			}
 		}, Clock.SYSTEM, client);
 		tsRegistry.config().meterFilter(MeterFilter.ignoreTags("sql", "table"));
-		RediSearchMeterRegistry searchRegistry = new RediSearchMeterRegistry(new RedisConfig() {
+		String[] EXCLUDED_TAGS = { "sql", "table" };
+		RediSearchMeterRegistry searchRegistry = new RediSearchMeterRegistry(new RediSearchRegistryConfig() {
 
 			@Override
 			public String keyspace() {
@@ -379,30 +375,31 @@ abstract class AbstractRegistryTests {
 			}
 
 			@Override
-			public Set<String> ignoreKeyTags() {
+			public String[] nonKeyTags() {
 				return EXCLUDED_TAGS;
 			}
 		}, Clock.SYSTEM, client);
 		searchRegistry.config().meterFilter(MeterFilter.acceptNameStartsWith("query")).meterFilter(MeterFilter.deny());
 		CompositeMeterRegistry registry = new CompositeMeterRegistry();
 		registry.add(tsRegistry).add(searchRegistry);
-		Timer timer1 = registry.timer("query", "id", "123", "sql",
-				"SELECT * FROM customers c, products p WHERE c.id = p.id", "table", "customers,products");
+		Timer timer1 = Timer.builder("query").tag("id", "123")
+				.tag("sql", "SELECT * FROM customers c, products p WHERE c.id = p.id")
+				.tag("table", "customers,products").publishPercentiles(0.9, 0.99).register(registry);
 		timer1.record(Duration.ofSeconds(3));
-		Timer timer2 = registry.timer("query", "id", "456", "sql", "SELECT * FROM customers c", "table", "customers");
+		Timer timer2 = Timer.builder("query").tag("id", "456").tag("sql", "SELECT * FROM customers c")
+				.tag("table", "customers").publishPercentiles(0.9, 0.99).register(registry);
 		timer2.record(Duration.ofSeconds(5));
-		String index = "query-idx";
+		String index = "query";
 		Awaitility.await().timeout(Duration.ofMillis(300))
 				.until(() -> connection.sync().ftSearch(index, "*").size() == 2);
 		List<String> tsKeys = connection.sync().keys("ts:*");
-		Assertions
-				.assertEquals(
-						new HashSet<>(Arrays.asList("ts:query:id:123:mean", "ts:query:id:123:count",
-								"ts:query:id:456:count", "ts:query:id:456:sum", "ts:query:id:123:sum",
-								"ts:query:id:456:max", "ts:query:id:123:max", "ts:query:id:456:mean")),
-						new HashSet<>(tsKeys));
+		Assertions.assertEquals(new HashSet<>(Arrays.asList("ts:query:id:456:max", "ts:query:id:456:quantile:0.9",
+				"ts:query:id:123:sum", "ts:query:id:123:quantile:0.99", "ts:query:id:123:count",
+				"ts:query:id:123:quantile:0.9", "ts:query:id:456:count", "ts:query:id:123:mean", "ts:query:id:123:max",
+				"ts:query:id:456:mean", "ts:query:id:456:sum", "ts:query:id:456:quantile:0.99")),
+				new HashSet<>(tsKeys));
 		List<String> searchKeys = connection.sync().keys("hash:*");
-		Assertions.assertEquals(new HashSet<>(Arrays.asList("hash:query:id:456", "hash:query:id:123")),
+		Assertions.assertEquals(new HashSet<>(Arrays.asList("hash:query:456", "hash:query:123")),
 				new HashSet<>(searchKeys));
 		SearchOptions.Builder<String, String> options = SearchOptions.builder();
 		options.sortBy(SortBy.asc("id"));

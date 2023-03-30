@@ -16,7 +16,6 @@ import java.util.function.Function;
 import java.util.function.ToDoubleFunction;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.stream.Collectors;
 import java.util.stream.DoubleStream;
 import java.util.stream.Stream;
 
@@ -57,27 +56,30 @@ import io.micrometer.core.instrument.util.TimeUtils;
  *
  * @author Julien Ruaux
  */
-abstract class AbstractRedisMeterRegistry extends StepMeterRegistry {
+abstract class AbstractRedisMeterRegistry<C extends RedisRegistryConfig> extends StepMeterRegistry {
+
+	public static final String TAG_QUANTILE = "quantile";
+	public static final String TAG_VMRANGE = "vmrange";
 
 	private final Logger log = Logger.getLogger(getClass().getName());
 
-	protected final RedisConfig config;
+	protected final C config;
 	private final boolean shutdownClient;
 	private final AbstractRedisClient client;
 	private final StatefulRedisModulesConnection<String, String> connection;
 	private final List<RedisFuture<?>> futures = new ArrayList<>();
 
-	protected AbstractRedisMeterRegistry(RedisConfig config, Clock clock, ThreadFactory threadFactory) {
+	protected AbstractRedisMeterRegistry(C config, Clock clock, ThreadFactory threadFactory) {
 		this(config, clock, client(config), true, threadFactory);
 	}
 
-	protected AbstractRedisMeterRegistry(RedisConfig config, Clock clock, AbstractRedisClient client,
+	protected AbstractRedisMeterRegistry(C config, Clock clock, AbstractRedisClient client,
 			ThreadFactory threadFactory) {
 		this(config, clock, client, false, threadFactory);
 	}
 
-	private AbstractRedisMeterRegistry(RedisConfig config, Clock clock, AbstractRedisClient client,
-			boolean shutdownClient, ThreadFactory threadFactory) {
+	private AbstractRedisMeterRegistry(C config, Clock clock, AbstractRedisClient client, boolean shutdownClient,
+			ThreadFactory threadFactory) {
 		super(config, clock);
 		this.config = config;
 		this.client = client;
@@ -88,7 +90,7 @@ abstract class AbstractRedisMeterRegistry extends StepMeterRegistry {
 		start(threadFactory);
 	}
 
-	private static AbstractRedisClient client(RedisConfig config) {
+	private static AbstractRedisClient client(RedisRegistryConfig config) {
 		if (config.cluster()) {
 			return RedisModulesClusterClient.create(config.uri());
 		}
@@ -106,7 +108,9 @@ abstract class AbstractRedisMeterRegistry extends StepMeterRegistry {
 	}
 
 	protected boolean addFuture(Function<RedisModulesAsyncCommands<String, String>, RedisFuture<?>> execution) {
-		return futures.add(execution.apply(connection.async()));
+		synchronized (futures) {
+			return futures.add(execution.apply(connection.async()));
+		}
 	}
 
 	@Override
@@ -140,10 +144,12 @@ abstract class AbstractRedisMeterRegistry extends StepMeterRegistry {
 					this::writeFunctionTimer, this::writeCustomMetric);
 		}
 		connection.flushCommands();
-		try {
-			return awaitAll();
-		} finally {
-			futures.clear();
+		synchronized (futures) {
+			try {
+				return awaitAll();
+			} finally {
+				futures.clear();
+			}
 		}
 	}
 
@@ -183,27 +189,27 @@ abstract class AbstractRedisMeterRegistry extends StepMeterRegistry {
 		throw e;
 	}
 
-	protected Stream<Id> idsForHistograms(Id id, DistributionStatisticConfig distributionStatisticConfig) {
+	protected Stream<Tag> histogramTags(DistributionStatisticConfig distributionStatisticConfig) {
 		TimeUnit timeUnit = getBaseTimeUnit();
 		NavigableSet<Double> buckets = distributionStatisticConfig.getHistogramBuckets(false);
-		return buckets.stream().map(b -> vmrange(id, b, timeUnit));
+		return buckets.stream().map(b -> vmrangeTag(b, timeUnit));
 	}
 
-	protected Id vmrange(Id id, double bucket, TimeUnit timeUnit) {
+	protected Tag vmrangeTag(double bucket, TimeUnit timeUnit) {
 		String value = getRangeTagValue(timeUnit == null ? bucket : TimeUtils.nanosToUnit(bucket, timeUnit));
-		return id.withTag(Tag.of("vmrange", value));
+		return Tag.of(TAG_VMRANGE, value);
 	}
 
-	protected Stream<Id> idsForPercentiles(Id id, DistributionStatisticConfig distributionStatisticConfig) {
+	protected Stream<Tag> percentileTags(DistributionStatisticConfig distributionStatisticConfig) {
 		double[] percentiles = distributionStatisticConfig.getPercentiles();
 		if (percentiles == null) {
 			return Stream.empty();
 		}
-		return DoubleStream.of(percentiles).mapToObj(percentile -> quantile(id, percentile));
+		return DoubleStream.of(percentiles).mapToObj(this::quantileTag);
 	}
 
-	protected Id quantile(Id id, double percentile) {
-		return id.withTag(Tag.of("quantile", String.valueOf(percentile)));
+	private Tag quantileTag(double percentile) {
+		return Tag.of(TAG_QUANTILE, String.valueOf(percentile));
 	}
 
 	@Override
@@ -256,32 +262,24 @@ abstract class AbstractRedisMeterRegistry extends StepMeterRegistry {
 	}
 
 	protected String key(Id id) {
-		return prefix(getFilteredConventionName(id));
+		return prefix(getConventionName(id));
 	}
 
-	private String getFilteredConventionName(Id id) {
-		return getConventionName(id, getFilteredConventionTags(id));
-	}
-
-	private String getConventionName(Id id, Iterable<Tag> tags) {
+	protected String getConventionName(Id id, Iterable<Tag> tags) {
 		StringBuilder name = new StringBuilder();
 		name.append(super.getConventionName(id));
 		for (Tag tag : tags) {
-			name.append(config.keySeparator()).append(tag.getKey()).append(config.keySeparator())
-					.append(tag.getValue());
+			name.append(config.keySeparator()).append(getConventionName(tag));
 		}
 		return name.toString();
 	}
 
-	private Iterable<Tag> getFilteredConventionTags(Id id) {
-		return getConventionTags(id).stream().filter(t -> !config.ignoreKeyTags().contains(t.getKey()))
-				.collect(Collectors.toList());
-	}
+	protected abstract String getConventionName(Tag tag);
 
 	protected String key(Id id, String suffix) {
 		// usually tagKeys and metricNames naming rules are the same
 		// but we can't call getConventionName again after adding suffix
-		return prefix(config().namingConvention().tagKey(getFilteredConventionName(id) + "." + suffix));
+		return prefix(config().namingConvention().tagKey(getConventionName(id) + "." + suffix));
 	}
 
 	protected String prefix(String key) {
@@ -300,7 +298,7 @@ abstract class AbstractRedisMeterRegistry extends StepMeterRegistry {
 		Map<Id, Double> map = new HashMap<>();
 		ToDoubleFunction<ValueAtPercentile> doubleFunction = percentileToDoubleFunction(meter);
 		for (ValueAtPercentile value : histogram.percentileValues()) {
-			map.put(quantile(meter.getId(), value.percentile()), doubleFunction.applyAsDouble(value));
+			map.put(meter.getId().withTag(quantileTag(value.percentile())), doubleFunction.applyAsDouble(value));
 		}
 		return map;
 	}
@@ -316,7 +314,7 @@ abstract class AbstractRedisMeterRegistry extends StepMeterRegistry {
 		Map<Id, Double> map = new HashMap<>();
 		TimeUnit timeUnit = getBaseTimeUnit();
 		for (CountAtBucket c : histogram.histogramCounts()) {
-			map.put(vmrange(meter.getId(), c.bucket(), timeUnit), c.count());
+			map.put(meter.getId().withTag(vmrangeTag(c.bucket(), timeUnit)), c.count());
 		}
 		return map;
 	}
