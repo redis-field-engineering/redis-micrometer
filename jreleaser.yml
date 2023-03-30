@@ -65,7 +65,7 @@ announce:
   slack:
     active: RELEASE
     channel: '#field-engineering-announcements'
-    message: '📈 Redis Micrometer {{projectVersion}} has been released!'
+    message: '📈 Redis Micrometer {{projectVersion}} has been released! {{releaseNotesUrl}}'
 
 files:
   artifacts:
