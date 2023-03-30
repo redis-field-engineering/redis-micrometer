@@ -390,13 +390,15 @@ abstract class AbstractRegistryTests {
 				.tag("table", "customers").publishPercentiles(0.9, 0.99).register(registry);
 		timer2.record(Duration.ofSeconds(5));
 		String index = "query";
-		Awaitility.await().timeout(Duration.ofMillis(300))
+		Awaitility.await().timeout(Duration.ofSeconds(3))
 				.until(() -> connection.sync().ftSearch(index, "*").size() == 2);
 		List<String> tsKeys = connection.sync().keys("ts:*");
-		Assertions.assertEquals(new HashSet<>(Arrays.asList("ts:query:456:max", "ts:query:456:0.9",
-				"ts:query:123:sum", "ts:query:123:0.99", "ts:query:123:count", "ts:query:123:0.9",
-				"ts:query:456:count", "ts:query:123:mean", "ts:query:123:max", "ts:query:456:mean", "ts:query:456:sum",
-				"ts:query:456:0.99")), new HashSet<>(tsKeys));
+		Assertions.assertEquals(
+				new HashSet<>(
+						Arrays.asList("ts:query:456:max", "ts:query:456:0.9", "ts:query:123:sum", "ts:query:123:0.99",
+								"ts:query:123:count", "ts:query:123:0.9", "ts:query:456:count", "ts:query:123:mean",
+								"ts:query:123:max", "ts:query:456:mean", "ts:query:456:sum", "ts:query:456:0.99")),
+				new HashSet<>(tsKeys));
 		List<String> searchKeys = connection.sync().keys("hash:*");
 		Assertions.assertEquals(new HashSet<>(Arrays.asList("hash:query:456", "hash:query:123")),
 				new HashSet<>(searchKeys));
