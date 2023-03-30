@@ -3,7 +3,7 @@
 :project-owner:   redis-field-engineering
 :project-name:    redis-micrometer
 :project-group:   com.redis
-:project-version: 0.4.1
+:project-version: 0.5.0
 :project-url:     https://github.com/{project-owner}/{project-name}
 :product-name:    Redis Micrometer Registry
 :artifact-id:     micrometer-registry-redis
