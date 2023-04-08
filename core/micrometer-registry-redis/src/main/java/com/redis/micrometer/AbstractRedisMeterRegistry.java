@@ -66,8 +66,8 @@ abstract class AbstractRedisMeterRegistry<C extends RedisRegistryConfig> extends
 	protected final C config;
 	private final boolean shutdownClient;
 	private final AbstractRedisClient client;
-	private final StatefulRedisModulesConnection<String, String> connection;
 	private final List<RedisFuture<?>> futures = new ArrayList<>();
+	private StatefulRedisModulesConnection<String, String> connection;
 
 	protected AbstractRedisMeterRegistry(C config, Clock clock, ThreadFactory threadFactory) {
 		this(config, clock, client(config), true, threadFactory);
@@ -84,8 +84,6 @@ abstract class AbstractRedisMeterRegistry<C extends RedisRegistryConfig> extends
 		this.config = config;
 		this.client = client;
 		this.shutdownClient = shutdownClient;
-		this.connection = RedisModulesUtils.connection(client);
-		this.connection.setAutoFlushCommands(false);
 		config().namingConvention(new RedisNamingConvention(config.keySeparator()));
 		start(threadFactory);
 	}
@@ -98,27 +96,33 @@ abstract class AbstractRedisMeterRegistry<C extends RedisRegistryConfig> extends
 	}
 
 	@Override
+	public void start(ThreadFactory threadFactory) {
+		this.connection = RedisModulesUtils.connection(client);
+		this.connection.setAutoFlushCommands(false);
+		super.start(threadFactory);
+	}
+
+	@Override
 	public void stop() {
+		super.stop();
 		connection.close();
 		if (shutdownClient) {
 			client.shutdown();
 			client.getResources().shutdown();
 		}
-		super.stop();
 	}
 
-	protected boolean addFuture(Function<RedisModulesAsyncCommands<String, String>, RedisFuture<?>> execution) {
+	protected void addFuture(Function<RedisModulesAsyncCommands<String, String>, RedisFuture<?>> execution) {
+		if (!connection.isOpen()) {
+			return;
+		}
 		synchronized (futures) {
-			return futures.add(execution.apply(connection.async()));
+			futures.add(execution.apply(connection.async()));
 		}
 	}
 
 	@Override
 	protected void publish() {
-		if (client == null) {
-			log.info("Client is null, skipping publish");
-			return;
-		}
 		for (List<Meter> batch : MeterPartition.partition(this, config.batchSize())) {
 			try {
 				write(batch);
@@ -134,50 +138,63 @@ abstract class AbstractRedisMeterRegistry<C extends RedisRegistryConfig> extends
 		write(Arrays.asList(meters));
 	}
 
-	public boolean write(List<Meter> batch) throws InterruptedException {
+	public void write(List<Meter> batch) throws InterruptedException {
 		if (batch.isEmpty()) {
-			return true;
+			return;
+		}
+		if (!connection.isOpen()) {
+			return;
 		}
 		for (Meter meter : batch) {
 			meter.use(this::writeGauge, this::writeCounter, this::writeTimer, this::writeDistributionSummary,
 					this::writeLongTaskTimer, this::writeTimeGauge, this::writeFunctionCounter,
 					this::writeFunctionTimer, this::writeCustomMetric);
 		}
+		if (!connection.isOpen()) {
+			return;
+		}
 		connection.flushCommands();
 		synchronized (futures) {
 			try {
-				return awaitAll();
+				awaitAll();
 			} finally {
 				futures.clear();
 			}
 		}
 	}
 
-	private boolean awaitAll() throws InterruptedException {
+	private void awaitAll() throws InterruptedException {
+		if (!connection.isOpen()) {
+			return;
+		}
 		Duration timeout = connection.getTimeout();
 		long nanos = timeout.toNanos();
 		long time = System.nanoTime();
 		try {
 			for (RedisFuture<?> f : futures) {
+				if (!connection.isOpen()) {
+					return;
+				}
 				try {
 					if (timeout.isZero() || timeout.isNegative()) {
 						f.get();
 					} else {
 						if (nanos < 0) {
-							return false;
+							return;
 						}
 						f.get(nanos, TimeUnit.NANOSECONDS);
 						long now = System.nanoTime();
 						nanos -= now - time;
 						time = now;
 					}
+				} catch (InterruptedException e) {
+					throw e;
 				} catch (Exception e) {
 					handleExecutionException(e);
 				}
 			}
-			return true;
 		} catch (TimeoutException e) {
-			return false;
+			// ignore
 		} catch (InterruptedException e) {
 			throw e;
 		} catch (Exception e) {
