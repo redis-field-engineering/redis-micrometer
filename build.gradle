@@ -82,6 +82,11 @@ subprojects {
         info {
             description = project.project_description
         }
+        coverage {
+            jacoco {
+		        toolVersion = jacocoVersion
+            }
+        }       
     }
     
     license {
