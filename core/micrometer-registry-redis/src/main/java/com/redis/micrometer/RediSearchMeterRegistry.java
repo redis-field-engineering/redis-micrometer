@@ -31,9 +31,17 @@ import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.TimeGauge;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.config.NamingConvention;
+import io.micrometer.core.instrument.cumulative.CumulativeCounter;
+import io.micrometer.core.instrument.cumulative.CumulativeDistributionSummary;
+import io.micrometer.core.instrument.cumulative.CumulativeFunctionCounter;
+import io.micrometer.core.instrument.cumulative.CumulativeTimer;
 import io.micrometer.core.instrument.distribution.DistributionStatisticConfig;
+import io.micrometer.core.instrument.distribution.HistogramGauges;
 import io.micrometer.core.instrument.distribution.HistogramSnapshot;
 import io.micrometer.core.instrument.distribution.pause.PauseDetector;
+import io.micrometer.core.instrument.step.StepCounter;
+import io.micrometer.core.instrument.step.StepDistributionSummary;
+import io.micrometer.core.instrument.step.StepFunctionCounter;
 import io.micrometer.core.instrument.step.StepMeterRegistry;
 import io.micrometer.core.instrument.util.NamedThreadFactory;
 
@@ -124,7 +132,13 @@ public class RediSearchMeterRegistry extends AbstractRedisMeterRegistry<RediSear
 	@Override
 	protected Counter newCounter(Id id) {
 		createMeter(id, FIELD_VALUE);
-		return super.newCounter(id);
+		switch (config.mode()) {
+		case CUMULATIVE:
+			return new CumulativeCounter(id);
+		case STEP:
+		default:
+			return new StepCounter(id, clock, config.step().toMillis());
+		}
 	}
 
 	@Override
@@ -134,13 +148,36 @@ public class RediSearchMeterRegistry extends AbstractRedisMeterRegistry<RediSear
 		fields.addAll(Arrays.asList(FIELD_COUNT, FIELD_SUM, FIELD_MAX, FIELD_MEAN));
 		fields.addAll(toFieldNames(percentileTags(distributionStatisticConfig)));
 		createMeter(id, fields);
-		return super.newDistributionSummary(id, distributionStatisticConfig, scale);
+		DistributionStatisticConfig merged = distributionStatisticConfig
+				.merge(DistributionStatisticConfig.builder().expiry(config.step()).build());
+
+		DistributionSummary summary;
+		switch (config.mode()) {
+		case CUMULATIVE:
+			summary = new CumulativeDistributionSummary(id, clock, merged, scale, false);
+			break;
+		case STEP:
+		default:
+			summary = new StepDistributionSummary(id, clock, merged, scale, config.step().toMillis(), false);
+			break;
+		}
+
+		HistogramGauges.registerWithCommonFormat(summary, this);
+
+		return summary;
 	}
 
 	@Override
 	protected <T> FunctionCounter newFunctionCounter(Id id, T obj, ToDoubleFunction<T> countFunction) {
 		createMeter(id, FIELD_VALUE);
-		return super.newFunctionCounter(id, obj, countFunction);
+		switch (config.mode()) {
+		case CUMULATIVE:
+			return new CumulativeFunctionCounter<>(id, obj, countFunction);
+
+		case STEP:
+		default:
+			return new StepFunctionCounter<>(id, clock, config.step().toMillis(), obj, countFunction);
+		}
 	}
 
 	@Override
@@ -169,7 +206,13 @@ public class RediSearchMeterRegistry extends AbstractRedisMeterRegistry<RediSear
 		fields.addAll(Arrays.asList(FIELD_COUNT, FIELD_SUM, FIELD_MEAN, FIELD_MAX));
 		fields.addAll(fieldNames(distributionStatisticConfig));
 		createMeter(id, fields);
-		return super.newTimer(id, distributionStatisticConfig, pauseDetector);
+		switch (config.mode()) {
+		case CUMULATIVE:
+			return new CumulativeTimer(id, clock, distributionStatisticConfig, pauseDetector, getBaseTimeUnit(), false);
+		case STEP:
+		default:
+			return super.newTimer(id, distributionStatisticConfig, pauseDetector);
+		}
 	}
 
 	@Override
@@ -247,12 +290,12 @@ public class RediSearchMeterRegistry extends AbstractRedisMeterRegistry<RediSear
 		MeterDocument doc = doc(timer);
 		doc.put(FIELD_MEAN, timer.mean(getBaseTimeUnit()));
 		doc.put(FIELD_MAX, timer.max(getBaseTimeUnit()));
+		doc.put(FIELD_COUNT, timer.count());
+		doc.put(FIELD_SUM, timer.totalTime(getBaseTimeUnit()));
 		HistogramSnapshot histogram = timer.takeSnapshot();
 		doc.putValues(percentileValues(timer, histogram));
 		doc.putValues(histogramCounts(timer, histogram));
 		write(doc);
-		hincrby(doc, FIELD_COUNT, timer.count());
-		hincrbyfloat(doc, FIELD_SUM, timer.totalTime(getBaseTimeUnit()));
 	}
 
 	@Override
@@ -260,19 +303,11 @@ public class RediSearchMeterRegistry extends AbstractRedisMeterRegistry<RediSear
 		MeterDocument doc = doc(timer);
 		doc.put(FIELD_MAX, timer.max(getBaseTimeUnit()));
 		doc.put(FIELD_ACTIVE_COUNT, timer.activeTasks());
+		doc.put(FIELD_DURATION_SUM, timer.duration(getBaseTimeUnit()));
 		HistogramSnapshot histogram = timer.takeSnapshot();
 		doc.putValues(percentileValues(timer, histogram));
 		doc.putValues(histogramCounts(timer, histogram));
 		write(doc);
-		hincrbyfloat(doc, FIELD_DURATION_SUM, timer.duration(getBaseTimeUnit()));
-	}
-
-	private void hincrbyfloat(MeterDocument doc, String field, double amount) {
-		addFuture(c -> c.hincrbyfloat(doc.getId(), field, amount));
-	}
-
-	private void hincrby(MeterDocument doc, String field, long amount) {
-		addFuture(c -> c.hincrby(doc.getId(), field, amount));
 	}
 
 	private void write(MeterDocument doc) {
@@ -282,8 +317,8 @@ public class RediSearchMeterRegistry extends AbstractRedisMeterRegistry<RediSear
 	@Override
 	protected void write(Meter meter, double amount) {
 		MeterDocument doc = doc(meter);
+		doc.put(FIELD_VALUE, amount);
 		write(doc);
-		hincrbyfloat(doc, FIELD_VALUE, amount);
 	}
 
 	@Override
@@ -299,17 +334,17 @@ public class RediSearchMeterRegistry extends AbstractRedisMeterRegistry<RediSear
 		doc.put(FIELD_SUM, summary.totalAmount());
 		doc.put(FIELD_MAX, summary.max());
 		doc.put(FIELD_MEAN, summary.mean());
+		doc.put(FIELD_COUNT, summary.count());
 		doc.putValues(percentileValues(summary, summary.takeSnapshot()));
 		write(doc);
-		hincrby(doc, FIELD_COUNT, summary.count());
 	}
 
 	@Override
 	protected void writeFunctionTimer(FunctionTimer timer) {
 		MeterDocument doc = doc(timer);
+		doc.put(FIELD_COUNT, timer.count());
+		doc.put(FIELD_SUM, timer.totalTime(getBaseTimeUnit()));
 		write(doc);
-		hincrbyfloat(doc, FIELD_COUNT, timer.count());
-		hincrbyfloat(doc, FIELD_SUM, timer.totalTime(getBaseTimeUnit()));
 	}
 
 }
