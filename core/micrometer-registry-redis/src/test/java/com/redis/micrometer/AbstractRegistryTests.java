@@ -382,9 +382,9 @@ abstract class AbstractRegistryTests {
 		searchRegistry.config().meterFilter(MeterFilter.acceptNameStartsWith("query")).meterFilter(MeterFilter.deny());
 		CompositeMeterRegistry registry = new CompositeMeterRegistry();
 		registry.add(tsRegistry).add(searchRegistry);
-		Timer timer1 = Timer.builder("query").tag("id", "123")
-				.tag("sql", "SELECT * FROM customers c, products p WHERE c.id = p.id")
-				.tag("table", "customers,products").publishPercentiles(0.9, 0.99).register(registry);
+		Timer timer1 = Timer.builder("query").tags("id", "123", "sql",
+				"SELECT * FROM customers c, products p WHERE c.id = p.id", "table", "customers,products")
+				.publishPercentiles(0.9, 0.99).register(registry);
 		timer1.record(Duration.ofSeconds(3));
 		Timer timer2 = Timer.builder("query").tag("id", "456").tag("sql", "SELECT * FROM customers c")
 				.tag("table", "customers").publishPercentiles(0.9, 0.99).register(registry);
