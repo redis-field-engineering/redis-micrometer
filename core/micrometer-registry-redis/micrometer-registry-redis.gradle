@@ -4,12 +4,9 @@ dependencies {
     implementation 'org.apache.commons:commons-pool2'
     testImplementation 'org.slf4j:slf4j-api'
     testImplementation 'org.slf4j:slf4j-simple'
+    testImplementation group: 'org.awaitility', name: 'awaitility', version: awaitilityVersion
     testImplementation 'io.micrometer:micrometer-test'
-    testImplementation 'io.projectreactor.netty:reactor-netty-core'   
-}
-
-compileJava {
-    options.release = 8
+    testImplementation 'io.projectreactor.netty:reactor-netty-core'
 }
 
 eclipse {

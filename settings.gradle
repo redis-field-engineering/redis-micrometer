@@ -44,4 +44,8 @@ enforce {
         // search only on compile and runtime classpaths
         r.configurations.addAll(['compileClasspath', 'runtimeClasspath'])
     }
+    rule(enforcer.rules.ForceDependencies) { r ->
+        r.dependencies.addAll "org.testcontainers:testcontainers:$testcontainersVersion",
+            "com.redis:lettucemod:$lettucemodVersion"
+    }
 }
