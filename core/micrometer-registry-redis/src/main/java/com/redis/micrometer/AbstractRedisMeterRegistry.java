@@ -58,292 +58,295 @@ import io.micrometer.core.instrument.util.TimeUtils;
  */
 abstract class AbstractRedisMeterRegistry<C extends RedisRegistryConfig> extends StepMeterRegistry {
 
-	public static final String TAG_QUANTILE = "quantile";
-	public static final String TAG_VMRANGE = "vmrange";
+    public static final String TAG_QUANTILE = "quantile";
 
-	private final Logger log = Logger.getLogger(getClass().getName());
+    public static final String TAG_VMRANGE = "vmrange";
 
-	protected final C config;
-	private final boolean shutdownClient;
-	private final AbstractRedisClient client;
-	private final List<RedisFuture<?>> futures = new ArrayList<>();
-	private StatefulRedisModulesConnection<String, String> connection;
+    private final Logger log = Logger.getLogger(getClass().getName());
 
-	protected AbstractRedisMeterRegistry(C config, Clock clock, ThreadFactory threadFactory) {
-		this(config, clock, client(config), true, threadFactory);
-	}
+    protected final C config;
 
-	protected AbstractRedisMeterRegistry(C config, Clock clock, AbstractRedisClient client,
-			ThreadFactory threadFactory) {
-		this(config, clock, client, false, threadFactory);
-	}
+    private final boolean shutdownClient;
 
-	private AbstractRedisMeterRegistry(C config, Clock clock, AbstractRedisClient client, boolean shutdownClient,
-			ThreadFactory threadFactory) {
-		super(config, clock);
-		this.config = config;
-		this.client = client;
-		this.shutdownClient = shutdownClient;
-		config().namingConvention(new RedisNamingConvention(config.keySeparator()));
-		start(threadFactory);
-	}
+    private final AbstractRedisClient client;
 
-	private static AbstractRedisClient client(RedisRegistryConfig config) {
-		if (config.cluster()) {
-			return RedisModulesClusterClient.create(config.uri());
-		}
-		return RedisModulesClient.create(config.uri());
-	}
+    private final List<RedisFuture<?>> futures = new ArrayList<>();
 
-	@Override
-	public void start(ThreadFactory threadFactory) {
-		this.connection = RedisModulesUtils.connection(client);
-		this.connection.setAutoFlushCommands(false);
-		super.start(threadFactory);
-	}
+    private StatefulRedisModulesConnection<String, String> connection;
 
-	@Override
-	public void stop() {
-		super.stop();
-		connection.close();
-		if (shutdownClient) {
-			client.shutdown();
-			client.getResources().shutdown();
-		}
-	}
+    protected AbstractRedisMeterRegistry(C config, Clock clock, ThreadFactory threadFactory) {
+        this(config, clock, client(config), true, threadFactory);
+    }
 
-	protected void addFuture(Function<RedisModulesAsyncCommands<String, String>, RedisFuture<?>> execution) {
-		if (!connection.isOpen()) {
-			return;
-		}
-		synchronized (futures) {
-			futures.add(execution.apply(connection.async()));
-		}
-	}
+    protected AbstractRedisMeterRegistry(C config, Clock clock, AbstractRedisClient client, ThreadFactory threadFactory) {
+        this(config, clock, client, false, threadFactory);
+    }
 
-	@Override
-	protected void publish() {
-		for (List<Meter> batch : MeterPartition.partition(this, config.batchSize())) {
-			try {
-				write(batch);
-			} catch (InterruptedException e) {
-				log.log(Level.WARNING, "Interrupted!", e);
-				// Restore interrupted state...
-				Thread.currentThread().interrupt();
-			}
-		}
-	}
+    private AbstractRedisMeterRegistry(C config, Clock clock, AbstractRedisClient client, boolean shutdownClient,
+            ThreadFactory threadFactory) {
+        super(config, clock);
+        this.config = config;
+        this.client = client;
+        this.shutdownClient = shutdownClient;
+        config().namingConvention(new RedisNamingConvention(config.keySeparator()));
+        start(threadFactory);
+    }
 
-	public void write(Meter... meters) throws InterruptedException {
-		write(Arrays.asList(meters));
-	}
+    private static AbstractRedisClient client(RedisRegistryConfig config) {
+        if (config.cluster()) {
+            return RedisModulesClusterClient.create(config.uri());
+        }
+        return RedisModulesClient.create(config.uri());
+    }
 
-	public void write(List<Meter> batch) throws InterruptedException {
-		if (batch.isEmpty()) {
-			return;
-		}
-		if (!connection.isOpen()) {
-			return;
-		}
-		for (Meter meter : batch) {
-			meter.use(this::writeGauge, this::writeCounter, this::writeTimer, this::writeDistributionSummary,
-					this::writeLongTaskTimer, this::writeTimeGauge, this::writeFunctionCounter,
-					this::writeFunctionTimer, this::writeCustomMetric);
-		}
-		if (!connection.isOpen()) {
-			return;
-		}
-		connection.flushCommands();
-		synchronized (futures) {
-			try {
-				awaitAll();
-			} finally {
-				futures.clear();
-			}
-		}
-	}
+    @Override
+    public void start(ThreadFactory threadFactory) {
+        this.connection = RedisModulesUtils.connection(client);
+        this.connection.setAutoFlushCommands(false);
+        super.start(threadFactory);
+    }
 
-	private void awaitAll() throws InterruptedException {
-		if (!connection.isOpen()) {
-			return;
-		}
-		Duration timeout = connection.getTimeout();
-		long nanos = timeout.toNanos();
-		long time = System.nanoTime();
-		try {
-			for (RedisFuture<?> f : futures) {
-				if (!connection.isOpen()) {
-					return;
-				}
-				try {
-					if (timeout.isZero() || timeout.isNegative()) {
-						f.get();
-					} else {
-						if (nanos < 0) {
-							return;
-						}
-						f.get(nanos, TimeUnit.NANOSECONDS);
-						long now = System.nanoTime();
-						nanos -= now - time;
-						time = now;
-					}
-				} catch (InterruptedException e) {
-					throw e;
-				} catch (Exception e) {
-					handleExecutionException(e);
-				}
-			}
-		} catch (TimeoutException e) {
-			// ignore
-		} catch (InterruptedException e) {
-			throw e;
-		} catch (Exception e) {
-			throw Exceptions.fromSynchronization(e);
-		}
-	}
+    @Override
+    public void close() {
+        super.close();
+        connection.close();
+        if (shutdownClient) {
+            client.shutdown();
+            client.getResources().shutdown();
+        }
+    }
 
-	protected void handleExecutionException(Exception e) throws Exception {
-		throw e;
-	}
+    protected void addFuture(Function<RedisModulesAsyncCommands<String, String>, RedisFuture<?>> execution) {
+        if (!connection.isOpen()) {
+            return;
+        }
+        synchronized (futures) {
+            futures.add(execution.apply(connection.async()));
+        }
+    }
 
-	protected Stream<Tag> histogramTags(DistributionStatisticConfig distributionStatisticConfig) {
-		TimeUnit timeUnit = getBaseTimeUnit();
-		NavigableSet<Double> buckets = distributionStatisticConfig.getHistogramBuckets(false);
-		return buckets.stream().map(b -> vmrangeTag(b, timeUnit));
-	}
+    @Override
+    protected void publish() {
+        for (List<Meter> batch : MeterPartition.partition(this, config.batchSize())) {
+            try {
+                write(batch);
+            } catch (InterruptedException e) {
+                log.log(Level.WARNING, "Interrupted!", e);
+                // Restore interrupted state...
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
 
-	protected Tag vmrangeTag(double bucket, TimeUnit timeUnit) {
-		String value = getRangeTagValue(timeUnit == null ? bucket : TimeUtils.nanosToUnit(bucket, timeUnit));
-		return Tag.of(TAG_VMRANGE, value);
-	}
+    public void write(Meter... meters) throws InterruptedException {
+        write(Arrays.asList(meters));
+    }
 
-	protected Stream<Tag> percentileTags(DistributionStatisticConfig distributionStatisticConfig) {
-		double[] percentiles = distributionStatisticConfig.getPercentiles();
-		if (percentiles == null) {
-			return Stream.empty();
-		}
-		return DoubleStream.of(percentiles).mapToObj(this::quantileTag);
-	}
+    public void write(List<Meter> batch) throws InterruptedException {
+        if (batch.isEmpty()) {
+            return;
+        }
+        if (!connection.isOpen()) {
+            return;
+        }
+        for (Meter meter : batch) {
+            meter.use(this::writeGauge, this::writeCounter, this::writeTimer, this::writeDistributionSummary,
+                    this::writeLongTaskTimer, this::writeTimeGauge, this::writeFunctionCounter, this::writeFunctionTimer,
+                    this::writeCustomMetric);
+        }
+        if (!connection.isOpen()) {
+            return;
+        }
+        connection.flushCommands();
+        synchronized (futures) {
+            try {
+                awaitAll();
+            } finally {
+                futures.clear();
+            }
+        }
+    }
 
-	private Tag quantileTag(double percentile) {
-		return Tag.of(TAG_QUANTILE, String.valueOf(percentile));
-	}
+    private void awaitAll() throws InterruptedException {
+        if (!connection.isOpen()) {
+            return;
+        }
+        Duration timeout = connection.getTimeout();
+        long nanos = timeout.toNanos();
+        long time = System.nanoTime();
+        try {
+            for (RedisFuture<?> f : futures) {
+                if (!connection.isOpen()) {
+                    return;
+                }
+                try {
+                    if (timeout.isZero() || timeout.isNegative()) {
+                        f.get();
+                    } else {
+                        if (nanos < 0) {
+                            return;
+                        }
+                        f.get(nanos, TimeUnit.NANOSECONDS);
+                        long now = System.nanoTime();
+                        nanos -= now - time;
+                        time = now;
+                    }
+                } catch (InterruptedException e) {
+                    throw e;
+                } catch (Exception e) {
+                    handleExecutionException(e);
+                }
+            }
+        } catch (TimeoutException e) {
+            // ignore
+        } catch (InterruptedException e) {
+            throw e;
+        } catch (Exception e) {
+            throw Exceptions.fromSynchronization(e);
+        }
+    }
 
-	@Override
-	protected Timer newTimer(Id id, DistributionStatisticConfig distributionStatisticConfig,
-			PauseDetector pauseDetector) {
-		return new StepTimer(id, clock, distributionStatisticConfig, pauseDetector, getBaseTimeUnit(),
-				this.config.step().toMillis(), true);
-	}
+    protected void handleExecutionException(Exception e) throws Exception {
+        throw e;
+    }
 
-	public void writeFunctionCounter(FunctionCounter counter) {
-		double count = counter.count();
-		if (Double.isFinite(count)) {
-			write(counter, count);
-		}
-	}
+    protected Stream<Tag> histogramTags(DistributionStatisticConfig distributionStatisticConfig) {
+        TimeUnit timeUnit = getBaseTimeUnit();
+        NavigableSet<Double> buckets = distributionStatisticConfig.getHistogramBuckets(false);
+        return buckets.stream().map(b -> vmrangeTag(b, timeUnit));
+    }
 
-	public void writeCounter(Counter counter) {
-		write(counter, counter.count());
-	}
+    protected Tag vmrangeTag(double bucket, TimeUnit timeUnit) {
+        String value = getRangeTagValue(timeUnit == null ? bucket : TimeUtils.nanosToUnit(bucket, timeUnit));
+        return Tag.of(TAG_VMRANGE, value);
+    }
 
-	public void writeGauge(Gauge gauge) {
-		double value = gauge.value();
-		if (Double.isFinite(value)) {
-			write(gauge, value);
-		}
-	}
+    protected Stream<Tag> percentileTags(DistributionStatisticConfig distributionStatisticConfig) {
+        double[] percentiles = distributionStatisticConfig.getPercentiles();
+        if (percentiles == null) {
+            return Stream.empty();
+        }
+        return DoubleStream.of(percentiles).mapToObj(this::quantileTag);
+    }
 
-	public void writeTimeGauge(TimeGauge timeGauge) {
-		double value = timeGauge.value(getBaseTimeUnit());
-		if (Double.isFinite(value)) {
-			write(timeGauge, value);
-		}
-	}
+    private Tag quantileTag(double percentile) {
+        return Tag.of(TAG_QUANTILE, String.valueOf(percentile));
+    }
 
-	protected abstract void writeLongTaskTimer(LongTaskTimer timer);
+    @Override
+    protected Timer newTimer(Id id, DistributionStatisticConfig distributionStatisticConfig, PauseDetector pauseDetector) {
+        return new StepTimer(id, clock, distributionStatisticConfig, pauseDetector, getBaseTimeUnit(),
+                this.config.step().toMillis(), true);
+    }
 
-	protected abstract void writeCustomMetric(Meter meter);
+    public void writeFunctionCounter(FunctionCounter counter) {
+        double count = counter.count();
+        if (Double.isFinite(count)) {
+            write(counter, count);
+        }
+    }
 
-	protected abstract void writeDistributionSummary(DistributionSummary summary);
+    public void writeCounter(Counter counter) {
+        write(counter, counter.count());
+    }
 
-	protected abstract void writeFunctionTimer(FunctionTimer timer);
+    public void writeGauge(Gauge gauge) {
+        double value = gauge.value();
+        if (Double.isFinite(value)) {
+            write(gauge, value);
+        }
+    }
 
-	protected abstract void writeTimer(Timer timer);
+    public void writeTimeGauge(TimeGauge timeGauge) {
+        double value = timeGauge.value(getBaseTimeUnit());
+        if (Double.isFinite(value)) {
+            write(timeGauge, value);
+        }
+    }
 
-	protected abstract void write(Meter meter, double amount);
+    protected abstract void writeLongTaskTimer(LongTaskTimer timer);
 
-	@Override
-	protected TimeUnit getBaseTimeUnit() {
-		return TimeUnit.MILLISECONDS;
-	}
+    protected abstract void writeCustomMetric(Meter meter);
 
-	protected String key(Id id) {
-		return prefix(getConventionName(id));
-	}
+    protected abstract void writeDistributionSummary(DistributionSummary summary);
 
-	protected String getConventionName(Id id, Iterable<Tag> tags) {
-		StringBuilder name = new StringBuilder();
-		name.append(super.getConventionName(id));
-		for (Tag tag : tags) {
-			name.append(config.keySeparator()).append(tag.getValue());
-		}
-		return name.toString();
-	}
+    protected abstract void writeFunctionTimer(FunctionTimer timer);
 
-	protected String key(Id id, String suffix) {
-		// usually tagKeys and metricNames naming rules are the same
-		// but we can't call getConventionName again after adding suffix
-		return prefix(config().namingConvention().tagKey(getConventionName(id) + "." + suffix));
-	}
+    protected abstract void writeTimer(Timer timer);
 
-	protected String prefix(String key) {
-		if (config.keyspace() == null) {
-			return key;
-		}
-		return config.keyspace() + config.keySeparator() + key;
-	}
+    protected abstract void write(Meter meter, double amount);
 
-	@Override
-	protected String getConventionName(Id id) {
-		return getConventionName(id, getConventionTags(id));
-	}
+    @Override
+    protected TimeUnit getBaseTimeUnit() {
+        return TimeUnit.MILLISECONDS;
+    }
 
-	protected Map<Id, Double> percentileValues(Meter meter, HistogramSnapshot histogram) {
-		Map<Id, Double> map = new HashMap<>();
-		ToDoubleFunction<ValueAtPercentile> doubleFunction = percentileToDoubleFunction(meter);
-		for (ValueAtPercentile value : histogram.percentileValues()) {
-			map.put(meter.getId().withTag(quantileTag(value.percentile())), doubleFunction.applyAsDouble(value));
-		}
-		return map;
-	}
+    protected String key(Id id) {
+        return prefix(getConventionName(id));
+    }
 
-	private ToDoubleFunction<ValueAtPercentile> percentileToDoubleFunction(Meter meter) {
-		if (meter instanceof Timer) {
-			return v -> v.value(getBaseTimeUnit());
-		}
-		return ValueAtPercentile::value;
-	}
+    protected String getConventionName(Id id, Iterable<Tag> tags) {
+        StringBuilder name = new StringBuilder();
+        name.append(super.getConventionName(id));
+        for (Tag tag : tags) {
+            name.append(config.keySeparator()).append(tag.getValue());
+        }
+        return name.toString();
+    }
 
-	protected Map<Id, Double> histogramCounts(Meter meter, HistogramSnapshot histogram) {
-		Map<Id, Double> map = new HashMap<>();
-		TimeUnit timeUnit = getBaseTimeUnit();
-		for (CountAtBucket c : histogram.histogramCounts()) {
-			map.put(meter.getId().withTag(vmrangeTag(c.bucket(), timeUnit)), c.count());
-		}
-		return map;
-	}
+    protected String key(Id id, String suffix) {
+        // usually tagKeys and metricNames naming rules are the same
+        // but we can't call getConventionName again after adding suffix
+        return prefix(config().namingConvention().tagKey(getConventionName(id) + "." + suffix));
+    }
 
-	protected Map<String, Double> statistics(Meter meter) {
-		Map<String, Double> stats = new HashMap<>();
-		for (Measurement measurement : meter.measure()) {
-			double value = measurement.getValue();
-			if (!Double.isFinite(value)) {
-				continue;
-			}
-			stats.put(measurement.getStatistic().getTagValueRepresentation(), value);
-		}
-		return stats;
-	}
+    protected String prefix(String key) {
+        if (config.keyspace() == null) {
+            return key;
+        }
+        return config.keyspace() + config.keySeparator() + key;
+    }
+
+    @Override
+    protected String getConventionName(Id id) {
+        return getConventionName(id, getConventionTags(id));
+    }
+
+    protected Map<Id, Double> percentileValues(Meter meter, HistogramSnapshot histogram) {
+        Map<Id, Double> map = new HashMap<>();
+        ToDoubleFunction<ValueAtPercentile> doubleFunction = percentileToDoubleFunction(meter);
+        for (ValueAtPercentile value : histogram.percentileValues()) {
+            map.put(meter.getId().withTag(quantileTag(value.percentile())), doubleFunction.applyAsDouble(value));
+        }
+        return map;
+    }
+
+    private ToDoubleFunction<ValueAtPercentile> percentileToDoubleFunction(Meter meter) {
+        if (meter instanceof Timer) {
+            return v -> v.value(getBaseTimeUnit());
+        }
+        return ValueAtPercentile::value;
+    }
+
+    protected Map<Id, Double> histogramCounts(Meter meter, HistogramSnapshot histogram) {
+        Map<Id, Double> map = new HashMap<>();
+        TimeUnit timeUnit = getBaseTimeUnit();
+        for (CountAtBucket c : histogram.histogramCounts()) {
+            map.put(meter.getId().withTag(vmrangeTag(c.bucket(), timeUnit)), c.count());
+        }
+        return map;
+    }
+
+    protected Map<String, Double> statistics(Meter meter) {
+        Map<String, Double> stats = new HashMap<>();
+        for (Measurement measurement : meter.measure()) {
+            double value = measurement.getValue();
+            if (!Double.isFinite(value)) {
+                continue;
+            }
+            stats.put(measurement.getStatistic().getTagValueRepresentation(), value);
+        }
+        return stats;
+    }
 
 }
